@@ -217,6 +217,8 @@ button.stuck img {
   align-items: center;
   border-bottom: 1px solid var(--line);
   padding-bottom: 1rem;
+  isolation: isolate;
+  z-index: 1;
 }
 
 .top h1 {
@@ -506,6 +508,10 @@ button.face.current {
   border-radius: var(--btn-r);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: max-content;
+  max-width: 100%;
+  white-space: nowrap;
   box-sizing: border-box;
 }
 
@@ -514,6 +520,10 @@ button.face.current {
   color: var(--ink);
   border: 0;
   height: 32px;
+}
+
+.drawer .file {
+  justify-self: start;
 }
 
 .file input {
@@ -877,6 +887,7 @@ button.sticker.on {
 .drawer-bg {
   position: fixed;
   inset: 0;
+  z-index: 40;
   background: rgba(17, 17, 17, 0.28);
   display: flex;
   justify-content: flex-end;
@@ -898,6 +909,10 @@ button.sticker.on {
 .drawer-block {
   display: grid;
   gap: 0.7rem;
+}
+
+.drawer-block > button {
+  justify-self: start;
 }
 
 .drawer-block + .drawer-block {

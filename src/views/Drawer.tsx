@@ -203,7 +203,7 @@ export function Drawer({ item, onClose }: { item: Item; onClose: () => void }) {
             onChange={(e) => setParts(e.target.value)}
             placeholder={'Проверить шаблон\nПочинить вёрстку\nОтдать на тест'}
           />
-          <button type="button" className="primary" onClick={split}>
+          <button type="button" className="ghost" onClick={split}>
             Создать части
           </button>
           {children.length ? (
@@ -245,7 +245,7 @@ export function Drawer({ item, onClose }: { item: Item; onClose: () => void }) {
               onChange={(e) => setComment(e.target.value)}
               placeholder="Заметка команде"
             />
-            <button type="submit" className="primary">
+            <button type="submit" className="ghost">
               Написать
             </button>
           </form>

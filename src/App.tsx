@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Avatar, readMemberFromItem } from './Avatar'
-import { weekLabel } from './dates'
+import { sprintName, weekLabel } from './dates'
 import { RoleChip } from './RoleChip'
 import { useStore } from './store'
 import { markDropConsumed } from './detach'
@@ -41,7 +41,9 @@ export default function App() {
               ‹
             </button>
             <div>
-              <h1>Неделя {weekLabel(weekId)}</h1>
+              <h1>
+                {sprintName(weekId)} {weekLabel(weekId)}
+              </h1>
               {liveWeek ? (
                 <p className="week-now">эта неделя</p>
               ) : (

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { AssignedFace } from '../AssignedFace'
 import { memberDropBind } from '../Avatar'
 import { CardStickers } from '../StickerBar'
@@ -7,16 +8,22 @@ import { useStore } from '../store'
 export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
   const { state, pullToSprint, addCriterion, updateCriterion, removeCriterion, scoreOf, assignItem, stickSticker } =
     useStore()
+  const [settings, setSettings] = useState(false)
   const rows = state.items
     .filter((it) => it.lane === 'backlog' && !it.parentId)
     .slice()
     .sort((a, b) => scoreOf(b) - scoreOf(a))
 
   return (
-    <section className="page split">
+    <section className={settings ? 'page split' : 'page'}>
       <div>
         <div className="page-head">
-          <h2>Бэклог</h2>
+          <div className="page-head-row">
+            <h2>Бэклог</h2>
+            <button type="button" className="ghost" onClick={() => setSettings((open) => !open)}>
+              {settings ? 'Скрыть настройки' : 'Настройки'}
+            </button>
+          </div>
           <p>Сортировка по вашим критериям. Оценка 1–5, вес можно менять.</p>
         </div>
         <table className="grid">
@@ -77,6 +84,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
         </table>
       </div>
 
+      {settings ? (
       <aside className="criteria">
         <h3>Критерии оценки</h3>
         {state.criteria.map((c) => (
@@ -104,6 +112,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
           Добавить критерий
         </button>
       </aside>
+      ) : null}
     </section>
   )
 }

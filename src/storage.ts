@@ -71,6 +71,7 @@ function migrate(state: AppState): AppState {
       return {
         ...it,
         authorId: it.authorId ?? null,
+        relatedIds: it.relatedIds ?? [],
         stickers: it.stickers?.length ? it.stickers : fromOld,
       }
     }),

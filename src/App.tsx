@@ -8,6 +8,7 @@ import { Inbox } from './views/Inbox'
 import { Backlog } from './views/Backlog'
 import { Sprint } from './views/Sprint'
 import { Team } from './views/Team'
+import { Graph } from './views/Graph'
 import { Drawer } from './views/Drawer'
 import { StickerRail } from './StickerBar'
 
@@ -18,7 +19,7 @@ const views = [
   { id: 'team', label: 'Команда' },
 ] as const
 
-type ViewId = (typeof views)[number]['id']
+type ViewId = (typeof views)[number]['id'] | 'graph'
 
 export default function App() {
   const { state, weekId, liveWeek, shiftWeek, goThisWeek, setCurrentMember, assignItem, rollWeekRoles } =
@@ -103,8 +104,8 @@ export default function App() {
         </div>
       </header>
 
-      <div className="workspace">
-        <StickerRail />
+      <div className={view === 'graph' ? 'workspace graph-mode' : 'workspace'}>
+        {view === 'graph' ? null : <StickerRail />}
         <div className="workspace-main">
       {sprint?.goalClosed ? (
         <p className="banner ok">Цель недели закрыта.</p>
@@ -115,11 +116,22 @@ export default function App() {
         {view === 'backlog' ? <Backlog onOpen={setOpenId} /> : null}
         {view === 'inbox' ? <Inbox onOpen={setOpenId} /> : null}
         {view === 'team' ? <Team /> : null}
+        {view === 'graph' ? <Graph onOpen={setOpenId} /> : null}
       </main>
         </div>
       </div>
 
-      {openItem ? <Drawer item={openItem} onClose={() => setOpenId(null)} /> : null}
+      <footer className="foot">
+        <button
+          type="button"
+          className={view === 'graph' ? 'link on' : 'link'}
+          onClick={() => setView('graph')}
+        >
+          граф
+        </button>
+      </footer>
+
+      {openItem ? <Drawer item={openItem} onOpen={setOpenId} onClose={() => setOpenId(null)} /> : null}
     </div>
   )
 }

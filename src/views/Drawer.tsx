@@ -6,7 +6,15 @@ import { stickerDropBind } from '../stickers'
 import { useStore } from '../store'
 import type { Item, Lane } from '../types'
 
-export function Drawer({ item, onClose }: { item: Item; onClose: () => void }) {
+export function Drawer({
+  item,
+  onOpen,
+  onClose,
+}: {
+  item: Item
+  onOpen: (id: string) => void
+  onClose: () => void
+}) {
   const {
     state,
     updateItem,
@@ -15,6 +23,8 @@ export function Drawer({ item, onClose }: { item: Item; onClose: () => void }) {
     carryOver,
     moveItem,
     decompose,
+    linkTasks,
+    unlinkTask,
     setScore,
     addComment,
     scoreOf,
@@ -24,6 +34,9 @@ export function Drawer({ item, onClose }: { item: Item; onClose: () => void }) {
   const [parts, setParts] = useState('')
   const [comment, setComment] = useState('')
   const children = state.items.filter((it) => it.parentId === item.id)
+  const peers = (item.relatedIds ?? [])
+    .map((id) => state.items.find((it) => it.id === id))
+    .filter((it): it is Item => Boolean(it))
   const thread = state.comments.filter((c) => c.itemId === item.id)
   const parent = state.items.find((it) => it.id === item.parentId)
 
@@ -38,6 +51,13 @@ export function Drawer({ item, onClose }: { item: Item; onClose: () => void }) {
     const titles = parts.split('\n')
     if (!titles.some((t) => t.trim())) return
     decompose(item.id, titles)
+    setParts('')
+  }
+
+  function connect() {
+    const titles = parts.split('\n')
+    if (!titles.some((t) => t.trim())) return
+    linkTasks(item.id, titles)
     setParts('')
   }
 
@@ -106,7 +126,14 @@ export function Drawer({ item, onClose }: { item: Item; onClose: () => void }) {
             value={item.title}
             onChange={(e) => updateItem(item.id, { title: e.target.value })}
           />
-          {parent ? <p className="hint">Часть: {parent.title}</p> : null}
+          {parent ? (
+            <p className="hint">
+              Часть:{' '}
+              <button type="button" className="link" onClick={() => onOpen(parent.id)}>
+                {parent.title}
+              </button>
+            </p>
+          ) : null}
           <textarea
             rows={5}
             value={item.body}
@@ -196,21 +223,66 @@ export function Drawer({ item, onClose }: { item: Item; onClose: () => void }) {
         </section>
 
         <section className="drawer-block">
-          <h3>Разложить</h3>
+          <h3>Связи</h3>
           <textarea
             rows={3}
             value={parts}
             onChange={(e) => setParts(e.target.value)}
-            placeholder={'Проверить шаблон\nПочинить вёрстку\nОтдать на тест'}
+            placeholder={'Название задачи, по одной в строке'}
           />
-          <button type="button" className="ghost" onClick={split}>
-            Создать части
-          </button>
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              const title = e.target.value
+              if (!title) return
+              linkTasks(item.id, [title])
+              e.target.value = ''
+            }}
+          >
+            <option value="">Связать с существующей…</option>
+            {state.items
+              .filter(
+                (it) =>
+                  it.id !== item.id &&
+                  !(item.relatedIds ?? []).includes(it.id) &&
+                  it.parentId !== item.id,
+              )
+              .map((it) => (
+                <option key={it.id} value={it.title}>
+                  {it.title}
+                </option>
+              ))}
+          </select>
+          <div className="row">
+            <button type="button" className="ghost" onClick={connect}>
+              Связать
+            </button>
+            <button type="button" className="ghost" onClick={split}>
+              Создать части
+            </button>
+          </div>
+          {peers.length ? (
+            <ul className="parts">
+              {peers.map((peer) => (
+                <li key={peer.id} className="link-row">
+                  <button type="button" className="link" onClick={() => onOpen(peer.id)}>
+                    {peer.title}
+                  </button>
+                  <button type="button" className="ghost" onClick={() => unlinkTask(item.id, peer.id)}>
+                    Убрать
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {children.length ? (
             <ul className="parts">
               {children.map((ch) => (
                 <li key={ch.id}>
-                  {ch.title} · {laneName(ch.lane)}
+                  <button type="button" className="link" onClick={() => onOpen(ch.id)}>
+                    {ch.title}
+                  </button>
+                  <span> · часть · {laneName(ch.lane)}</span>
                 </li>
               ))}
             </ul>

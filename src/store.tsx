@@ -32,6 +32,8 @@ type Store = {
   pullToSprint: (id: string) => void
   carryOver: (id: string) => void
   decompose: (id: string, titles: string[]) => void
+  linkTasks: (id: string, titles: string[]) => void
+  unlinkTask: (id: string, otherId: string) => void
   setScore: (itemId: string, criterionId: string, value: number) => void
   addComment: (itemId: string, text: string) => void
   addCriterion: () => void
@@ -175,6 +177,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               scores: {},
               attachments,
               stickers: [],
+              relatedIds: [],
               createdAt: Date.now(),
             },
             ...s.items,
@@ -188,7 +191,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       removeItem: (id) =>
         mutate((s) => ({
           ...s,
-          items: s.items.filter((it) => it.id !== id && it.parentId !== id),
+          items: s.items
+            .filter((it) => it.id !== id && it.parentId !== id)
+            .map((it) => ({
+              ...it,
+              relatedIds: (it.relatedIds ?? []).filter((rid) => rid !== id),
+            })),
           comments: s.comments.filter((c) => c.itemId !== id),
         })),
       moveItem: (id, lane, sprintId) =>
@@ -233,14 +241,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               id: uid(),
               title,
               body: `Часть задачи: ${parent.title}`,
-              lane: parent.lane === 'inbox' ? 'backlog' : parent.lane,
-              sprintId: parent.sprintId,
+              lane: 'todo',
+              sprintId: parent.sprintId ?? weekId,
               parentId: parent.id,
               assigneeId: null,
               authorId: s.currentMemberId,
               scores: { ...parent.scores },
               attachments: [],
               stickers: [],
+              relatedIds: [],
               createdAt: Date.now(),
             }))
           return {
@@ -252,6 +261,64 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ).concat(children),
           }
         }),
+      linkTasks: (id, titles) =>
+        mutate((s) => {
+          const origin = s.items.find((it) => it.id === id)
+          if (!origin) return s
+          let items = s.items.map((it) => ({
+            ...it,
+            relatedIds: it.relatedIds ?? [],
+          }))
+          for (const raw of titles) {
+            const title = raw.trim()
+            if (!title) continue
+            let other = items.find(
+              (it) => it.id !== id && it.title.toLowerCase() === title.toLowerCase(),
+            )
+            if (!other) {
+              other = {
+                id: uid(),
+                title,
+                body: '',
+                lane: origin.lane === 'inbox' ? 'backlog' : origin.lane,
+                sprintId: origin.sprintId,
+                parentId: null,
+                relatedIds: [],
+                assigneeId: null,
+                authorId: s.currentMemberId,
+                scores: {},
+                attachments: [],
+                stickers: [],
+                createdAt: Date.now(),
+              }
+              items = [...items, other]
+            }
+            const otherId = other.id
+            items = items.map((it) => {
+              if (it.id === id && !it.relatedIds.includes(otherId)) {
+                return { ...it, relatedIds: [...it.relatedIds, otherId] }
+              }
+              if (it.id === otherId && !it.relatedIds.includes(id)) {
+                return { ...it, relatedIds: [...it.relatedIds, id] }
+              }
+              return it
+            })
+          }
+          return { ...s, items }
+        }),
+      unlinkTask: (id, otherId) =>
+        mutate((s) => ({
+          ...s,
+          items: s.items.map((it) => {
+            if (it.id === id) {
+              return { ...it, relatedIds: (it.relatedIds ?? []).filter((rid) => rid !== otherId) }
+            }
+            if (it.id === otherId) {
+              return { ...it, relatedIds: (it.relatedIds ?? []).filter((rid) => rid !== id) }
+            }
+            return it
+          }),
+        })),
       setScore: (itemId, criterionId, value) =>
         mutate((s) => ({
           ...s,

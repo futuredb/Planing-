@@ -16,7 +16,7 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
   const { state, weekId, setGoal, toggleGoalClosed, moveItem, carryOver, closeSprint } =
     useStore()
   const sprint = state.sprints.find((s) => s.id === weekId)
-  const inSprint = state.items.filter((it) => it.sprintId === weekId && !it.parentId)
+  const inSprint = state.items.filter((it) => it.sprintId === weekId)
   const openCount = inSprint.filter((it) => it.lane !== 'done').length
 
   function onDrop(lane: Lane, e: DragEvent) {
@@ -94,7 +94,6 @@ function Card({
 }) {
   const { state, assignItem, moveItem, weekId, stickSticker } = useStore()
   const owner = state.members.find((m) => m.id === item.assigneeId)
-  const parts = state.items.filter((it) => it.parentId === item.id)
   const memberDrop = memberDropBind((memberId, from) =>
     assignItem(item.id, memberId, from),
   )
@@ -128,7 +127,6 @@ function Card({
       <CardStickers item={item} />
       <button className="card-main" onClick={() => onOpen(item.id)}>
         <strong>{item.title}</strong>
-        {parts.length ? <em>разложена на {parts.length}</em> : null}
       </button>
       <div className="card-head">
         {owner ? <AssignedFace itemId={item.id} member={owner} /> : <span className="face empty card" />}

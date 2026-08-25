@@ -41,6 +41,7 @@ export type Item = {
   lane: Lane
   sprintId: string | null
   parentId: string | null
+  relatedIds: string[]
   assigneeId: string | null
   authorId: string | null
   scores: Record<string, number>

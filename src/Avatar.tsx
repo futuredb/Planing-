@@ -68,7 +68,7 @@ export function Avatar({
   onDragEnd,
 }: {
   member: Member
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'card'
   current?: boolean
   draggable?: boolean
   onPick?: () => void

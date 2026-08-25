@@ -28,15 +28,12 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <section className="page">
       <div className="goal">
-        <div>
-          <p className="kicker">Цель недели — закрыть</p>
-          <textarea
-            value={sprint?.goal ?? ''}
-            onChange={(e) => setGoal(e.target.value)}
-            rows={2}
-            placeholder="Одна формулировка, по которой видно, прошла неделя или нет"
-          />
-        </div>
+        <textarea
+          value={sprint?.goal ?? ''}
+          onChange={(e) => setGoal(e.target.value)}
+          rows={2}
+          placeholder="Цель недели — закрыть"
+        />
         <div className="goal-actions">
           <button
             type="button"
@@ -48,9 +45,6 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
           <button type="button" onClick={closeSprint} disabled={!openCount}>
             Закрыть спринт
           </button>
-          <p className="hint">
-            Перетащите аватар или стикер на карточку. Стяните обратно — снять.
-          </p>
         </div>
       </div>
 
@@ -132,13 +126,13 @@ function Card({
       }}
     >
       <CardStickers item={item} />
-      <div className="card-head">
-        {owner ? <AssignedFace itemId={item.id} member={owner} /> : <span className="face empty sm" />}
-      </div>
       <button className="card-main" onClick={() => onOpen(item.id)}>
         <strong>{item.title}</strong>
         {parts.length ? <em>разложена на {parts.length}</em> : null}
       </button>
+      <div className="card-head">
+        {owner ? <AssignedFace itemId={item.id} member={owner} /> : <span className="face empty card" />}
+      </div>
       {showCarry ? (
         <button type="button" className="ghost" onClick={onCarry}>
           В следующую неделю

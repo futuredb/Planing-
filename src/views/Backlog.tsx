@@ -53,10 +53,10 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                 <td>
                   <div className="task-cell cardish">
                     <CardStickers item={it} />
-                    {owner ? <AssignedFace itemId={it.id} member={owner} /> : <span className="face empty sm" />}
                     <button className="link" onClick={() => onOpen(it.id)}>
                       {it.title}
                     </button>
+                    {owner ? <AssignedFace itemId={it.id} member={owner} /> : <span className="face empty card" />}
                   </div>
                 </td>
                 {state.criteria.map((c) => (
@@ -79,7 +79,6 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
 
       <aside className="criteria">
         <h3>Критерии оценки</h3>
-        <p>Это не сторипоинты. Ставите свои оси и веса.</p>
         {state.criteria.map((c) => (
           <div key={c.id} className="crit">
             <input
@@ -96,20 +95,6 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                 onChange={(e) => updateCriterion(c.id, { weight: Number(e.target.value) })}
               />
             </label>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={c.invert}
-                onChange={(e) => updateCriterion(c.id, { invert: e.target.checked })}
-              />
-              чем больше — тем хуже
-            </label>
-            <input
-              className="hint-input"
-              value={c.hint}
-              placeholder="Зачем этот критерий"
-              onChange={(e) => updateCriterion(c.id, { hint: e.target.value })}
-            />
             <button type="button" className="ghost" onClick={() => removeCriterion(c.id)}>
               Убрать
             </button>

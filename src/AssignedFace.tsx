@@ -14,7 +14,7 @@ export function AssignedFace({
   return (
     <Avatar
       member={member}
-      size="sm"
+      size="card"
       draggable
       fromItemId={itemId}
       onDragEnd={() =>

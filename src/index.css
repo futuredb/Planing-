@@ -219,15 +219,6 @@ button.stuck img {
   padding-bottom: 1rem;
 }
 
-.mark {
-  margin: 0;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--muted);
-}
-
 .top h1 {
   font-size: 1.7rem;
   margin: 0;
@@ -304,14 +295,14 @@ button.link.week-now {
 .assignee {
   display: flex;
   gap: 0.55rem;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .crew-person {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
+  position: relative;
+  width: 48px;
+  height: 48px;
+  flex: none;
 }
 
 .role-chip {
@@ -327,6 +318,16 @@ button.link.week-now {
   letter-spacing: 0.01em;
   color: #111;
   white-space: nowrap;
+}
+
+.role-chip.on-face {
+  position: absolute;
+  z-index: 2;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 0.58rem;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(17, 17, 17, 0.16);
 }
 
 .role-chip.empty {
@@ -353,6 +354,10 @@ button.link.week-now {
 
 .role-chip.role-hustler {
   background: #f8edd0;
+}
+
+.role-chip.role-strategist {
+  background: #f3d5c8;
 }
 
 .dice-btn,
@@ -407,6 +412,14 @@ button.face.sm {
   min-height: 28px;
 }
 
+.face.card,
+button.face.card {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+}
+
 .face.current,
 button.face.current {
   border-color: var(--ink);
@@ -445,21 +458,11 @@ button.face.current {
 }
 
 .page-head p,
-.hint,
-.kicker {
+.hint {
   color: var(--muted);
 }
 
-.kicker {
-  margin: 0 0 0.4rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
 .capture,
-.goal,
 .card,
 .criteria,
 .crit,
@@ -506,6 +509,13 @@ button.face.current {
   box-sizing: border-box;
 }
 
+.file.ghost {
+  background: #e8eaed;
+  color: var(--ink);
+  border: 0;
+  height: 32px;
+}
+
 .file input {
   position: absolute;
   inset: 0;
@@ -527,10 +537,26 @@ button.face.current {
   border-radius: var(--radius);
 }
 
+.thumbs.large {
+  display: grid;
+  gap: 0.55rem;
+}
+
 .thumbs.large img {
   width: 100%;
   height: auto;
   max-height: 220px;
+}
+
+.thumb-item {
+  position: relative;
+  margin: 0;
+}
+
+.thumb-item .ghost {
+  position: absolute;
+  top: 8px;
+  right: 8px;
 }
 
 .idea-list,
@@ -574,10 +600,20 @@ button.face.current {
 
 .goal {
   display: grid;
-  grid-template-columns: 1.4fr 0.8fr;
+  grid-template-columns: 1.4fr auto;
   gap: 1rem;
-  padding: 1rem;
+  align-items: start;
+  padding: 0;
   margin-bottom: 1.2rem;
+  background: none;
+  border: 0;
+}
+
+.goal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
 }
 
 .goal textarea {
@@ -613,36 +649,41 @@ button.face.current {
 
 .card {
   position: relative;
-  padding: 0.85rem;
+  padding: 1rem 1rem 0.9rem;
   margin-bottom: 0.55rem;
   overflow: visible;
-  min-height: 6.5rem;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.7rem;
+  row-gap: 0.65rem;
+  align-items: start;
 }
 
 .card > .ghost {
-  margin-top: 16px;
+  grid-column: 1 / -1;
+  margin-top: 0;
+  justify-self: start;
 }
 
 .card-head {
-  position: absolute;
-  top: 0.7rem;
-  right: 0.7rem;
+  position: static;
 }
 
 .card-main {
   display: grid;
   gap: 0.35rem;
-  width: 100%;
+  width: auto;
+  min-width: 0;
   text-align: left;
-  padding: 0 2.2rem 0 0;
+  padding: 0;
+  min-height: 2.4rem;
   border-radius: 0;
 }
 
 .card-main strong {
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .split {
@@ -766,15 +807,25 @@ button.sticker.on {
 
 .idea-row {
   display: flex;
-  gap: 0.55rem;
+  gap: 0.7rem;
   align-items: flex-start;
+}
+
+.idea-row .idea {
+  min-width: 0;
+  flex: 1;
 }
 
 .task-cell {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.35rem 0.55rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
   align-items: start;
+}
+
+.task-cell .link {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .task-cell .stickers {
@@ -816,41 +867,11 @@ button.sticker.on {
 
 .team li {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 72px 1fr auto;
   gap: 0.75rem;
   padding: 0.85rem;
   margin-bottom: 0.5rem;
   align-items: center;
-}
-
-.role-guide {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 1.4rem;
-  display: grid;
-  gap: 0.55rem;
-}
-
-.role-guide li {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.7rem;
-  align-items: start;
-  padding: 0.75rem 0.85rem;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
-.role-guide strong {
-  display: block;
-  font-size: 0.95rem;
-}
-
-.role-guide p {
-  margin: 0.15rem 0 0;
-  color: var(--muted);
-  font-size: 0.85rem;
 }
 
 .drawer-bg {
@@ -863,43 +884,118 @@ button.sticker.on {
 
 .drawer {
   position: relative;
-  width: min(440px, 100%);
+  width: min(560px, 100%);
   height: 100%;
   overflow: auto;
-  padding: 1rem 1.1rem 3rem;
+  padding: 1.15rem 1.4rem 2.75rem;
   display: grid;
-  gap: 0.7rem;
+  gap: 1.4rem;
   align-content: start;
   border-radius: var(--radius) 0 0 var(--radius);
+  z-index: 4;
+}
+
+.drawer-block {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.drawer-block + .drawer-block {
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--line);
+}
+
+.drawer-art {
+  position: relative;
+  height: 4.5rem;
+}
+
+.drawer input,
+.drawer textarea,
+.drawer select,
+.drawer button:not(.stuck),
+.drawer label,
+.drawer .assignee {
+  position: relative;
+  z-index: 5;
 }
 
 .drawer header {
   display: flex;
   justify-content: space-between;
+  gap: 0.5rem;
+  position: sticky;
+  top: -1.15rem;
+  z-index: 6;
+  background: #fff;
+  padding: 0.15rem 0 0.7rem;
 }
 
 .drawer .title {
   font-family: Inter, system-ui, sans-serif;
-  font-size: 1.35rem;
+  font-size: 1.4rem;
   font-weight: 800;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.drawer .title:focus {
+  outline: none;
+}
+
+.drawer textarea {
+  min-height: 7.5rem;
+}
+
+.field-label {
+  display: block;
+  margin: 0 0 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.drawer-meta {
+  display: grid;
+  grid-template-columns: 1fr minmax(9rem, 10.5rem);
+  gap: 1rem;
+  align-items: end;
+}
+
+.drawer h3 {
+  font-size: 0.92rem;
+  letter-spacing: -0.02em;
+}
+
+.drawer .comments,
+.drawer .parts {
+  margin: 0;
+}
+
+.comment-form {
+  display: grid;
+  gap: 0.55rem;
+  justify-items: start;
 }
 
 .score-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 0.5rem;
+  grid-template-columns: minmax(5rem, 1fr) minmax(7rem, 1fr) 1.5rem;
+  gap: 0.65rem;
   align-items: center;
 }
 
-.score-row i {
-  display: block;
-  font-style: normal;
-  color: var(--muted);
-  font-size: 0.78rem;
+.score-row b {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .score-row input[type='range'] {
-  width: 120px;
+  width: 100%;
 }
 
 .comments li {

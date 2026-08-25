@@ -29,6 +29,12 @@ export const WEEK_ROLES = [
     tag: 'суетолог',
     hint: 'Двигает людей и дедлайны, не даёт задаче зависнуть.',
   },
+  {
+    id: 'strategist',
+    name: 'Стратег',
+    tag: 'стратег',
+    hint: 'Смотрит на неделю целиком: приоритет, что не делаем, куда идём.',
+  },
 ] as const
 
 export type RoleId = (typeof WEEK_ROLES)[number]['id']
@@ -72,7 +78,8 @@ export function assignRoles(memberIds: string[], rand: () => number = Math.rando
   const shuffled = shuffle(ids, rand)
   const roles: RoleMap = {}
   memberIds.forEach((memberId, i) => {
-    roles[memberId] = shuffled[i % shuffled.length]
+    const role = shuffled[i]
+    if (role) roles[memberId] = role
   })
   return roles
 }
@@ -83,4 +90,13 @@ export function defaultRoles(weekId: string, memberIds: string[]) {
 
 export function rollRoles(memberIds: string[]) {
   return assignRoles(memberIds)
+}
+
+export function chipStickerPose(seed: string) {
+  const rand = mulberry32(hash(`chip:${seed}`))
+  return {
+    top: rand() < 0.5,
+    shift: -8 + rand() * 16,
+    rot: -8 + rand() * 16,
+  }
 }

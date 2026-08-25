@@ -124,7 +124,6 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
             >
               <CardStickers item={it} />
               <div className="idea-row">
-                {owner ? <AssignedFace itemId={it.id} member={owner} /> : <span className="face empty sm" />}
                 <button className="idea" onClick={() => onOpen(it.id)}>
                   <strong>{it.title}</strong>
                   {author ? (
@@ -138,6 +137,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
                     <em>{it.attachments.length} изобр.</em>
                   ) : null}
                 </button>
+                {owner ? <AssignedFace itemId={it.id} member={owner} /> : <span className="face empty card" />}
               </div>
               <div className="row tight">
                 <button type="button" onClick={() => moveItem(it.id, 'backlog', null)}>

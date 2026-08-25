@@ -35,7 +35,6 @@ export default function App() {
     <div className="shell">
       <header className="top">
         <div className="week-block">
-          <p className="mark">Weekboard</p>
           <div className="week-nav">
             <button type="button" className="ghost week-btn" onClick={() => shiftWeek(-1)} aria-label="Предыдущая неделя">
               ‹
@@ -86,7 +85,10 @@ export default function App() {
                 current={state.currentMemberId === m.id}
                 onPick={() => setCurrentMember(m.id)}
               />
-              <RoleChip roleId={sprint?.roles?.[m.id]} />
+              <RoleChip
+                roleId={sprint?.roles?.[m.id]}
+                sticker={`${weekId}-${m.id}-${sprint?.roles?.[m.id] ?? ''}`}
+              />
             </div>
           ))}
           <button

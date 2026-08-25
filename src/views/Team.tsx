@@ -1,10 +1,10 @@
 import { memberAvatar } from '../Avatar'
 import { RoleChip } from '../RoleChip'
-import { WEEK_ROLES } from '../roles'
 import { useStore } from '../store'
 
 export function Team() {
-  const { state, patchMember } = useStore()
+  const { state, weekId, patchMember } = useStore()
+  const sprint = state.sprints.find((s) => s.id === weekId)
 
   function setPhoto(id: string, file: File | undefined) {
     if (!file || !file.type.startsWith('image/')) return
@@ -18,22 +18,10 @@ export function Team() {
       <div className="page-head">
         <h2>Команда · 5 человек</h2>
         <p>
-          Роли недели общие для всех: кубик в шапке раскидывает их заново. Имена
-          и фото — здесь. Клик по фото в шапке — «я пишу от этого человека».
+          Имена и фото — здесь. Тег — роль этой недели. Клик по фото в шапке —
+          «я пишу от этого человека».
         </p>
       </div>
-
-      <ul className="role-guide">
-        {WEEK_ROLES.map((role) => (
-          <li key={role.id}>
-            <RoleChip roleId={role.id} />
-            <div>
-              <strong>{role.name}</strong>
-              <p>{role.hint}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
 
       <ul className="team">
         {state.members.map((m) => (
@@ -50,6 +38,7 @@ export function Team() {
               value={m.name}
               onChange={(e) => patchMember(m.id, { name: e.target.value })}
             />
+            <RoleChip roleId={sprint?.roles?.[m.id]} />
           </li>
         ))}
       </ul>

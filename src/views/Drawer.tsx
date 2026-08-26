@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Avatar, memberDropBind } from '../Avatar'
 import { CardStickers } from '../StickerBar'
 import { filesToAttachments } from '../storage'
 import { stickerDropBind } from '../stickers'
 import { useStore } from '../store'
-import type { Item, Lane } from '../types'
+import type { Attachment, Item, Lane } from '../types'
 
 export function Drawer({
   item,
@@ -33,6 +33,7 @@ export function Drawer({
   } = useStore()
   const [parts, setParts] = useState('')
   const [comment, setComment] = useState('')
+  const [preview, setPreview] = useState<Attachment | null>(null)
   const children = state.items.filter((it) => it.parentId === item.id)
   const peers = (item.relatedIds ?? [])
     .map((id) => state.items.find((it) => it.id === id))
@@ -78,7 +79,21 @@ export function Drawer({
     stickSticker(item.id, sticker, place, from),
   )
 
+  useEffect(() => {
+    setPreview(null)
+  }, [item.id])
+
+  useEffect(() => {
+    if (!preview) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreview(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [preview])
+
   return (
+    <>
     <div className="drawer-bg" onClick={onClose}>
       <aside
         className="drawer"
@@ -141,12 +156,26 @@ export function Drawer({
             placeholder="Описание"
           />
           {item.attachments.length ? (
-            <div className="thumbs large">
+            <div className="thumbs">
               {item.attachments.map((a) => (
                 <figure key={a.id} className="thumb-item">
-                  <img src={a.dataUrl} alt={a.name} />
-                  <button type="button" className="ghost" onClick={() => removeImage(a.id)}>
-                    Удалить
+                  <button
+                    type="button"
+                    className="thumb-open"
+                    onClick={() => setPreview(a)}
+                  >
+                    <img src={a.dataUrl} alt={a.name} />
+                  </button>
+                  <button
+                    type="button"
+                    className="thumb-x"
+                    onClick={() => {
+                      if (preview?.id === a.id) setPreview(null)
+                      removeImage(a.id)
+                    }}
+                    aria-label="Удалить картинку"
+                  >
+                    ×
                   </button>
                 </figure>
               ))}
@@ -192,29 +221,39 @@ export function Drawer({
                 <option value="todo">Спринт</option>
                 <option value="doing">В работе</option>
                 <option value="done">Готово</option>
+                <option value="archive">Архив</option>
               </select>
             </label>
           </div>
           <div className="row">
-            <button type="button" className="primary" onClick={() => pullToSprint(item.id)}>
-              В этот спринт
-            </button>
-            <button type="button" className="ghost" onClick={() => carryOver(item.id)}>
-              В следующую неделю
-            </button>
+            {item.lane === 'archive' ? (
+              <button type="button" className="primary" onClick={() => moveItem(item.id, 'backlog', null)}>
+                Вернуть в бэклог
+              </button>
+            ) : (
+              <>
+                <button type="button" className="primary" onClick={() => pullToSprint(item.id)}>
+                  В этот спринт
+                </button>
+                <button type="button" className="ghost" onClick={() => carryOver(item.id)}>
+                  В следующую неделю
+                </button>
+              </>
+            )}
           </div>
         </section>
 
         <section className="drawer-block">
-          <h3>Оценка · {scoreOf(item) || 'нет балла'}</h3>
+          <h3>Оценка · {scoreOf(item) ?? 'нет балла'}</h3>
           {state.criteria.map((c) => (
             <label key={c.id} className="score-row">
               <span>{c.name}</span>
               <input
                 type="range"
-                min={1}
-                max={5}
-                value={item.scores[c.id] ?? 3}
+                min={0}
+                max={c.max}
+                step={c.step}
+                value={item.scores[c.id] ?? 0}
                 onChange={(e) => setScore(item.id, c.id, Number(e.target.value))}
               />
               <b>{item.scores[c.id] ?? '—'}</b>
@@ -243,6 +282,7 @@ export function Drawer({
             {state.items
               .filter(
                 (it) =>
+                  it.lane !== 'archive' &&
                   it.id !== item.id &&
                   !(item.relatedIds ?? []).includes(it.id) &&
                   it.parentId !== item.id,
@@ -324,6 +364,24 @@ export function Drawer({
         </section>
       </aside>
     </div>
+    {preview ? (
+      <div className="img-preview" onClick={() => setPreview(null)}>
+        <button
+          type="button"
+          className="thumb-x img-preview-x"
+          onClick={() => setPreview(null)}
+          aria-label="Закрыть превью"
+        >
+          ×
+        </button>
+        <img
+          src={preview.dataUrl}
+          alt={preview.name}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    ) : null}
+    </>
   )
 }
 
@@ -334,5 +392,6 @@ function laneName(lane: Lane) {
     todo: 'спринт',
     doing: 'в работе',
     done: 'готово',
+    archive: 'архив',
   }[lane]
 }

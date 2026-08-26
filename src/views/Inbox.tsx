@@ -9,7 +9,7 @@ import { useStore } from '../store'
 import type { Attachment } from '../types'
 
 export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
-  const { state, weekId, addIdea, pullToSprint, moveItem, assignItem, stickSticker } = useStore()
+  const { state, addIdea, pullToSprint, moveItem, assignItem, stickSticker } = useStore()
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [files, setFiles] = useState<Attachment[]>([])
@@ -38,7 +38,6 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   }
 
   const ideas = state.items.filter((it) => it.lane === 'inbox' && !it.parentId)
-  const sprint = state.sprints.find((s) => s.id === weekId)
 
   return (
     <section className="page">
@@ -74,13 +73,23 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
           rows={4}
           placeholder="Контекст, ссылка, цитата из чата"
         />
-        {files.length ? (
-          <div className="thumbs">
-            {files.map((f) => (
-              <img key={f.id} src={f.dataUrl} alt={f.name} />
-            ))}
-          </div>
-        ) : (
+          {files.length ? (
+            <div className="thumbs">
+              {files.map((f) => (
+                <figure key={f.id} className="thumb-item">
+                  <img src={f.dataUrl} alt={f.name} />
+                  <button
+                    type="button"
+                    className="thumb-x"
+                    onClick={() => setFiles((prev) => prev.filter((x) => x.id !== f.id))}
+                    aria-label="Удалить картинку"
+                  >
+                    ×
+                  </button>
+                </figure>
+              ))}
+            </div>
+          ) : (
           <p className="hint">Можно бросить сюда скриншот или выбрать файл.</p>
         )}
         <div className="row">
@@ -103,7 +112,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
         {ideas.map((it) => {
           const owner = state.members.find((m) => m.id === it.assigneeId)
           const author = state.members.find((m) => m.id === it.authorId)
-          const authorRole = author ? sprint?.roles?.[author.id] : undefined
+          const authorRole = author ? state.roles?.[author.id] : undefined
           const memberDrop = memberDropBind((id, from) => assignItem(it.id, id, from))
           const stickerDrop = stickerDropBind((sticker, place, from) =>
             stickSticker(it.id, sticker, place, from),

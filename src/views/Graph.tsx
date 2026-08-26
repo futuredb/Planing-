@@ -118,7 +118,10 @@ function layout(items: Item[]): { nodes: Node[]; edges: { a: string; b: string }
 
 export function Graph({ onOpen }: { onOpen: (id: string) => void }) {
   const { state } = useStore()
-  const { nodes, edges } = useMemo(() => layout(state.items), [state.items])
+  const { nodes, edges } = useMemo(
+    () => layout(state.items.filter((it) => it.lane !== 'archive')),
+    [state.items],
+  )
   const at = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes])
   const stage = useRef<HTMLDivElement>(null)
   const cam = useRef({ x: 0, y: 0, k: 1 })

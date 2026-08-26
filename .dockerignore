@@ -1,0 +1,9 @@
+node_modules
+dist
+data
+.git
+.github
+*.local
+.DS_Store
+.vercel
+**/*.tmp

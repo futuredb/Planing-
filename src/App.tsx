@@ -9,6 +9,7 @@ import { Backlog } from './views/Backlog'
 import { Sprint } from './views/Sprint'
 import { Team } from './views/Team'
 import { Graph } from './views/Graph'
+import { Archive } from './views/Archive'
 import { Drawer } from './views/Drawer'
 import { StickerRail } from './StickerBar'
 
@@ -19,7 +20,7 @@ const views = [
   { id: 'team', label: 'Команда' },
 ] as const
 
-type ViewId = (typeof views)[number]['id'] | 'graph'
+type ViewId = (typeof views)[number]['id'] | 'graph' | 'archive'
 
 export default function App() {
   const { state, weekId, liveWeek, shiftWeek, goThisWeek, setCurrentMember, assignItem, rollWeekRoles } =
@@ -89,8 +90,8 @@ export default function App() {
                 onPick={() => setCurrentMember(m.id)}
               />
               <RoleChip
-                roleId={sprint?.roles?.[m.id]}
-                sticker={`${weekId}-${m.id}-${sprint?.roles?.[m.id] ?? ''}`}
+                roleId={state.roles?.[m.id]}
+                sticker={`${m.id}-${state.roles?.[m.id] ?? ''}`}
               />
             </div>
           ))}
@@ -98,7 +99,7 @@ export default function App() {
             type="button"
             className="dice-btn"
             onClick={rollWeekRoles}
-            aria-label="Раскидать роли на неделю"
+            aria-label="Раскидать роли"
             title="Раскидать роли"
           >
             <img src="/dice.svg" alt="" />
@@ -106,8 +107,8 @@ export default function App() {
         </div>
       </header>
 
-      <div className={view === 'graph' ? 'workspace graph-mode' : 'workspace'}>
-        {view === 'graph' ? null : <StickerRail />}
+      <div className={view === 'sprint' ? 'workspace' : 'workspace graph-mode'}>
+        {view === 'sprint' ? <StickerRail /> : null}
         <div className="workspace-main">
       {sprint?.goalClosed ? (
         <p className="banner ok">Цель недели закрыта.</p>
@@ -119,6 +120,7 @@ export default function App() {
         {view === 'inbox' ? <Inbox onOpen={setOpenId} /> : null}
         {view === 'team' ? <Team /> : null}
         {view === 'graph' ? <Graph onOpen={setOpenId} /> : null}
+        {view === 'archive' ? <Archive onOpen={setOpenId} /> : null}
       </main>
         </div>
       </div>
@@ -130,6 +132,13 @@ export default function App() {
           onClick={() => setView('graph')}
         >
           граф
+        </button>
+        <button
+          type="button"
+          className={view === 'archive' ? 'link on' : 'link'}
+          onClick={() => setView('archive')}
+        >
+          архив
         </button>
       </footer>
 

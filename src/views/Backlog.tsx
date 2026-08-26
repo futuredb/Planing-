@@ -12,7 +12,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
   const rows = state.items
     .filter((it) => it.lane === 'backlog' && !it.parentId)
     .slice()
-    .sort((a, b) => scoreOf(b) - scoreOf(a))
+    .sort((a, b) => (scoreOf(b) ?? -1) - (scoreOf(a) ?? -1))
 
   return (
     <section className={settings ? 'page split' : 'page'}>
@@ -24,7 +24,10 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
               {settings ? 'Скрыть настройки' : 'Настройки'}
             </button>
           </div>
-          <p>Сортировка по вашим критериям. Оценка 1–5, вес можно менять.</p>
+          <p>
+            Охват, выхлоп, фокус, повестка, вера — среднее. Напряг режет итог сверху, на веру не
+            влияет.
+          </p>
         </div>
         <table className="grid">
           <thead>
@@ -71,7 +74,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                     {it.scores[c.id] ?? '—'}
                   </td>
                 ))}
-                <td className="num score">{scoreOf(it) || '—'}</td>
+                <td className="num score">{scoreOf(it) ?? '—'}</td>
                 <td>
                   <button type="button" onClick={() => pullToSprint(it.id)}>
                     В спринт
@@ -94,13 +97,18 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
               onChange={(e) => updateCriterion(c.id, { name: e.target.value })}
             />
             <label>
-              Вес
+              Макс.
               <input
                 type="number"
-                min={0}
-                max={10}
-                value={c.weight}
-                onChange={(e) => updateCriterion(c.id, { weight: Number(e.target.value) })}
+                min={0.5}
+                max={100}
+                step={0.5}
+                value={c.max}
+                onChange={(e) => {
+                  const max = Number(e.target.value)
+                  if (!Number.isFinite(max) || max <= 0) return
+                  updateCriterion(c.id, { max, step: max <= 3 ? 0.5 : 1 })
+                }}
               />
             </label>
             <button type="button" className="ghost" onClick={() => removeCriterion(c.id)}>

@@ -9,10 +9,10 @@ import {
   type ReactNode,
 } from 'react'
 import { mondayOf, nextMonday, shiftMonday, uid } from './dates'
-import { itemScore, loadState, saveState } from './storage'
+import { itemScore, loadState, saveMe, saveState } from './storage'
 import type { AppState, Attachment, Criterion, Item, Lane } from './types'
 import type { StickerId } from './stickers'
-import { defaultRoles, rollRoles } from './roles'
+import { rollRoles } from './roles'
 
 type Store = {
   state: AppState
@@ -48,7 +48,7 @@ type Store = {
     from?: { itemId: string; placedId: string; rot: number; scale: number },
   ) => void
   peelSticker: (itemId: string, placedId: string) => void
-  scoreOf: (item: Item) => number
+  scoreOf: (item: Item) => number | null
 }
 
 const StoreContext = createContext<Store | null>(null)
@@ -59,10 +59,14 @@ function bump(state: AppState): AppState {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null)
+  const [me, setMe] = useState<string | null>(null)
   const skipSave = useRef(true)
 
   useEffect(() => {
-    loadState().then(setState)
+    loadState().then((next) => {
+      setMe(next.currentMemberId)
+      setState(next)
+    })
   }, [])
 
   useEffect(() => {
@@ -85,7 +89,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const liveWeek = weekId === mondayOf()
 
   const api = useMemo<Store | null>(() => {
-    if (!state) return null
+    if (!state || !me) return null
+    const view: AppState = { ...state, currentMemberId: me }
 
     const withWeek = (prev: AppState, id: string) => {
       if (prev.sprints.some((s) => s.id === id)) return prev
@@ -99,10 +104,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             goal: '',
             goalClosed: false,
             closed: false,
-            roles: defaultRoles(
-              id,
-              prev.members.map((m) => m.id),
-            ),
           },
         ],
       }
@@ -111,7 +112,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const ensureNext = (prev: AppState) => withWeek(prev, nextMonday(weekId))
 
     return {
-      state,
+      state: view,
       weekId,
       liveWeek,
       shiftWeek: (dir) => {
@@ -132,7 +133,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return updated === prev ? prev : bump(updated)
         })
       },
-      setCurrentMember: (id) => mutate((s) => ({ ...s, currentMemberId: id })),
+      setCurrentMember: (id) => {
+        saveMe(id)
+        setMe(id)
+      },
       patchMember: (id, patch) =>
         mutate((s) => ({
           ...s,
@@ -173,12 +177,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               sprintId: null,
               parentId: null,
               assigneeId: null,
-              authorId: s.currentMemberId,
+              authorId: me,
               scores: {},
               attachments,
               stickers: [],
               relatedIds: [],
               createdAt: Date.now(),
+              archivedAt: null,
             },
             ...s.items,
           ],
@@ -208,6 +213,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   ...it,
                   lane,
                   sprintId: sprintId === undefined ? it.sprintId : sprintId,
+                  archivedAt: lane === 'archive' ? Date.now() : null,
                 }
               : it,
           ),
@@ -216,7 +222,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         mutate((s) => ({
           ...s,
           items: s.items.map((it) =>
-            it.id === id ? { ...it, lane: 'todo', sprintId: weekId } : it,
+            it.id === id ? { ...it, lane: 'todo', sprintId: weekId, archivedAt: null } : it,
           ),
         })),
       carryOver: (id) =>
@@ -226,7 +232,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return {
             ...withSprint,
             items: withSprint.items.map((it) =>
-              it.id === id ? { ...it, lane: 'todo', sprintId: next } : it,
+              it.id === id ? { ...it, lane: 'todo', sprintId: next, archivedAt: null } : it,
             ),
           }
         }),
@@ -245,12 +251,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               sprintId: parent.sprintId ?? weekId,
               parentId: parent.id,
               assigneeId: null,
-              authorId: s.currentMemberId,
+              authorId: me,
               scores: { ...parent.scores },
               attachments: [],
               stickers: [],
               relatedIds: [],
               createdAt: Date.now(),
+              archivedAt: null,
             }))
           return {
             ...s,
@@ -285,11 +292,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 parentId: null,
                 relatedIds: [],
                 assigneeId: null,
-                authorId: s.currentMemberId,
+                authorId: me,
                 scores: {},
                 attachments: [],
                 stickers: [],
                 createdAt: Date.now(),
+                archivedAt: null,
               }
               items = [...items, other]
             }
@@ -336,7 +344,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             {
               id: uid(),
               itemId,
-              authorId: s.currentMemberId,
+              authorId: me,
               text: text.trim(),
               createdAt: Date.now(),
             },
@@ -353,6 +361,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               weight: 1,
               invert: false,
               hint: '',
+              max: 3,
+              step: 0.5,
             },
           ],
         })),
@@ -375,21 +385,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             sprints: withSprint.sprints.map((sp) =>
               sp.id === weekId ? { ...sp, closed: true } : sp,
             ),
-            items: withSprint.items.map((it) =>
-              it.sprintId === weekId && it.lane !== 'done'
-                ? { ...it, lane: 'todo', sprintId: next }
-                : it,
-            ),
+            items: withSprint.items.map((it) => {
+              if (it.sprintId !== weekId || it.lane === 'archive') return it
+              if (it.lane === 'done') {
+                return { ...it, lane: 'archive' as const, archivedAt: Date.now() }
+              }
+              return { ...it, lane: 'todo' as const, sprintId: next, archivedAt: null }
+            }),
           }
         }),
       rollWeekRoles: () =>
         mutate((s) => ({
           ...s,
-          sprints: s.sprints.map((sp) =>
-            sp.id === weekId
-              ? { ...sp, roles: rollRoles(s.members.map((m) => m.id)) }
-              : sp,
-          ),
+          roles: rollRoles(s.members.map((m) => m.id)),
         })),
       stickSticker: (itemId, sticker, place, from) =>
         mutate((s) => ({
@@ -405,7 +413,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 {
                   id: from?.placedId ?? uid(),
                   sticker,
-                  by: s.currentMemberId,
+                  by: me,
                   x: place.x,
                   y: place.y,
                   rot: from?.rot ?? place.rot,
@@ -425,9 +433,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               : it,
           ),
         })),
-      scoreOf: (item) => itemScore(item, state.criteria),
+      scoreOf: (item) => itemScore(item, view.criteria),
     }
-  }, [mutate, state, weekId, liveWeek])
+  }, [mutate, state, me, weekId, liveWeek])
 
   if (!api) {
     return <div className="boot">Собираем доску…</div>

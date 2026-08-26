@@ -1,11 +1,12 @@
 {
-  "name": "planing",
+  "name": "funban",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "start": "node server.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },

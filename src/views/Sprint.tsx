@@ -16,8 +16,7 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
   const { state, weekId, setGoal, toggleGoalClosed, moveItem, carryOver, closeSprint } =
     useStore()
   const sprint = state.sprints.find((s) => s.id === weekId)
-  const inSprint = state.items.filter((it) => it.sprintId === weekId)
-  const openCount = inSprint.filter((it) => it.lane !== 'done').length
+  const inSprint = state.items.filter((it) => it.sprintId === weekId && it.lane !== 'archive')
 
   function onDrop(lane: Lane, e: DragEvent) {
     if (e.dataTransfer.getData('text/plain').startsWith('sticker:')) return
@@ -42,7 +41,7 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
           >
             {sprint?.goalClosed ? 'Цель закрыта' : 'Закрыть цель'}
           </button>
-          <button type="button" onClick={closeSprint} disabled={!openCount}>
+          <button type="button" onClick={closeSprint}>
             Закрыть спринт
           </button>
         </div>
@@ -69,7 +68,9 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
                   lane={col.lane}
                   onOpen={onOpen}
                   onCarry={() => carryOver(it.id)}
+                  onArchive={() => moveItem(it.id, 'archive')}
                   showCarry={col.lane !== 'done'}
+                  showArchive={col.lane === 'done'}
                 />
               ))}
           </div>
@@ -84,13 +85,17 @@ function Card({
   lane,
   onOpen,
   onCarry,
+  onArchive,
   showCarry,
+  showArchive,
 }: {
   item: Item
   lane: Lane
   onOpen: (id: string) => void
   onCarry: () => void
+  onArchive: () => void
   showCarry: boolean
+  showArchive: boolean
 }) {
   const { state, assignItem, moveItem, weekId, stickSticker } = useStore()
   const owner = state.members.find((m) => m.id === item.assigneeId)
@@ -134,6 +139,11 @@ function Card({
       {showCarry ? (
         <button type="button" className="ghost" onClick={onCarry}>
           В следующую неделю
+        </button>
+      ) : null}
+      {showArchive ? (
+        <button type="button" className="ghost" onClick={onArchive}>
+          В архив
         </button>
       ) : null}
     </article>

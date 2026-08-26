@@ -1,4 +1,4 @@
-import type { AppState } from './types'
+import type { AppState, Criterion } from './types'
 import { mondayOf, nextMonday, uid } from './dates'
 import { defaultRoles } from './roles'
 
@@ -10,17 +10,60 @@ export const TEAM_MEMBERS = [
   { id: 'm5', name: 'Свят', role: '', avatar: '/avatars/m5.png?v=2' },
 ]
 
+export const DEFAULT_CRITERIA: Criterion[] = [
+  { id: 'c-reach', name: 'Охват', weight: 1, invert: false, hint: '', max: 3, step: 0.5 },
+  { id: 'c-output', name: 'Выхлоп', weight: 1, invert: false, hint: '', max: 3, step: 0.5 },
+  { id: 'c-focus', name: 'Фокус', weight: 1, invert: false, hint: '', max: 3, step: 0.5 },
+  { id: 'c-agenda', name: 'Повестка', weight: 1, invert: false, hint: '', max: 3, step: 0.5 },
+  { id: 'c-belief', name: 'Вера', weight: 1, invert: false, hint: '', max: 10, step: 1 },
+  { id: 'c-strain', name: 'Напряг', weight: 1, invert: true, hint: 'Чем больше напряг — тем ниже итоговый балл', max: 10, step: 1 },
+]
+
+const LEGACY_SETS = [
+  ['Ценность', 'Срочность', 'Усилие', 'Ясность'],
+  ['Охват', 'На выходе', 'Стратегическая важность', 'Актуальность', 'Вера', 'Сложность (story points)'],
+]
+
+export function isLegacyCriteria(criteria: Criterion[] | undefined) {
+  if (!criteria?.length) return true
+  const names = criteria.map((c) => c.name)
+  return LEGACY_SETS.some(
+    (set) => set.length === names.length && set.every((name, i) => names[i] === name),
+  )
+}
+
+function emptyBoard(): Omit<AppState, 'items' | 'comments'> {
+  const week = mondayOf()
+  const members = TEAM_MEMBERS
+  return {
+    updatedAt: Date.now(),
+    members,
+    currentMemberId: members[0].id,
+    roles: defaultRoles(
+      'crew',
+      members.map((m) => m.id),
+    ),
+    criteria: DEFAULT_CRITERIA.map((c) => ({ ...c })),
+    sprints: [
+      {
+        id: week,
+        weekStart: week,
+        goal: '',
+        goalClosed: false,
+        closed: false,
+      },
+    ],
+  }
+}
+
+export function createEmpty(): AppState {
+  return { ...emptyBoard(), items: [], comments: [] }
+}
+
 export function createSeed(): AppState {
   const week = mondayOf()
   const next = nextMonday(week)
   const members = TEAM_MEMBERS
-
-  const criteria = [
-    { id: 'c1', name: 'Ценность', weight: 3, invert: false, hint: 'Насколько это двигает цель команды' },
-    { id: 'c2', name: 'Срочность', weight: 2, invert: false, hint: 'Насколько нельзя откладывать' },
-    { id: 'c3', name: 'Усилие', weight: 2, invert: true, hint: 'Чем больше работа — тем ниже балл' },
-    { id: 'c4', name: 'Ясность', weight: 1, invert: false, hint: 'Понятно ли, что делать' },
-  ]
 
   const i1 = uid()
   const i2 = uid()
@@ -34,7 +77,11 @@ export function createSeed(): AppState {
     updatedAt: Date.now(),
     members,
     currentMemberId: members[0].id,
-    criteria,
+    roles: defaultRoles(
+      'crew',
+      members.map((m) => m.id),
+    ),
+    criteria: DEFAULT_CRITERIA.map((c) => ({ ...c })),
     sprints: [
       {
         id: week,
@@ -42,7 +89,6 @@ export function createSeed(): AppState {
         goal: 'Закрыть онбординг новых клиентов без ручных правок',
         goalClosed: false,
         closed: false,
-        roles: defaultRoles(week, members.map((m) => m.id)),
       },
       {
         id: next,
@@ -50,7 +96,6 @@ export function createSeed(): AppState {
         goal: '',
         goalClosed: false,
         closed: false,
-        roles: defaultRoles(next, members.map((m) => m.id)),
       },
     ],
     items: [
@@ -68,6 +113,7 @@ export function createSeed(): AppState {
         attachments: [],
         stickers: [],
         createdAt: Date.now() - 3600_000,
+        archivedAt: null,
       },
       {
         id: i2,
@@ -83,6 +129,7 @@ export function createSeed(): AppState {
         attachments: [],
         stickers: [],
         createdAt: Date.now() - 1800_000,
+        archivedAt: null,
       },
       {
         id: i3,
@@ -101,6 +148,7 @@ export function createSeed(): AppState {
           { id: uid(), sticker: 'up', by: 'm5', x: 8, y: 62, rot: 11, scale: 0.92 },
         ],
         createdAt: Date.now() - 86400_000,
+        archivedAt: null,
       },
       {
         id: i4,
@@ -116,6 +164,7 @@ export function createSeed(): AppState {
         attachments: [],
         stickers: [],
         createdAt: Date.now() - 80000_000,
+        archivedAt: null,
       },
       {
         id: i5,
@@ -131,6 +180,7 @@ export function createSeed(): AppState {
         attachments: [],
         stickers: [],
         createdAt: Date.now() - 172800_000,
+        archivedAt: null,
       },
       {
         id: i6,
@@ -146,6 +196,7 @@ export function createSeed(): AppState {
         attachments: [],
         stickers: [],
         createdAt: Date.now() - 200000_000,
+        archivedAt: null,
       },
       {
         id: i7,
@@ -161,6 +212,7 @@ export function createSeed(): AppState {
         attachments: [],
         stickers: [],
         createdAt: Date.now() - 90000_000,
+        archivedAt: null,
       },
     ],
     comments: [

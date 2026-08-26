@@ -1,7 +1,7 @@
 import type { RoleMap } from './roles'
 import type { StickerId } from './stickers'
 
-export type Lane = 'inbox' | 'backlog' | 'todo' | 'doing' | 'done'
+export type Lane = 'inbox' | 'backlog' | 'todo' | 'doing' | 'done' | 'archive'
 
 export type Member = {
   id: string
@@ -16,6 +16,8 @@ export type Criterion = {
   weight: number
   invert: boolean
   hint: string
+  max: number
+  step: number
 }
 
 export type Sprint = {
@@ -24,7 +26,7 @@ export type Sprint = {
   goal: string
   goalClosed: boolean
   closed: boolean
-  roles: RoleMap
+  roles?: RoleMap
 }
 
 export type Attachment = {
@@ -48,6 +50,7 @@ export type Item = {
   attachments: Attachment[]
   stickers: PlacedSticker[]
   createdAt: number
+  archivedAt: number | null
 }
 
 export type PlacedSticker = {
@@ -72,6 +75,7 @@ export type AppState = {
   updatedAt: number
   members: Member[]
   currentMemberId: string
+  roles: RoleMap
   criteria: Criterion[]
   sprints: Sprint[]
   items: Item[]

@@ -549,39 +549,79 @@ button.face.current {
 
 .thumbs {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 
 .thumbs img {
-  width: 88px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   object-fit: cover;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
-.thumbs.large {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.thumbs.large img {
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  max-height: 220px;
+  border-radius: 12px;
+  display: block;
 }
 
 .thumb-item {
   position: relative;
   margin: 0;
+  width: 72px;
 }
 
-.thumb-item .ghost {
+.thumb-x {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: -7px;
+  right: -7px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #111;
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  z-index: 1;
+}
+
+.thumb-open {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+  border-radius: 12px;
+}
+
+.thumb-open img {
+  pointer-events: none;
+}
+
+.img-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(17, 17, 17, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+}
+
+.img-preview img {
+  width: auto;
+  height: auto;
+  max-width: min(92vw, 1100px);
+  max-height: 88vh;
+  object-fit: contain;
+  border-radius: 16px;
+}
+
+.img-preview-x {
+  top: 16px;
+  right: 16px;
 }
 
 .idea-list,
@@ -1090,7 +1130,9 @@ button.sticker.on {
   margin-top: auto;
   padding: 0.45rem 0 0.8rem;
   border: 0;
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  gap: 1.25rem;
 }
 
 .foot .link {

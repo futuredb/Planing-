@@ -3,8 +3,7 @@ import { RoleChip } from '../RoleChip'
 import { useStore } from '../store'
 
 export function Team() {
-  const { state, weekId, patchMember } = useStore()
-  const sprint = state.sprints.find((s) => s.id === weekId)
+  const { state, patchMember } = useStore()
 
   function setPhoto(id: string, file: File | undefined) {
     if (!file || !file.type.startsWith('image/')) return
@@ -18,7 +17,7 @@ export function Team() {
       <div className="page-head">
         <h2>Команда · 5 человек</h2>
         <p>
-          Имена и фото — здесь. Тег — роль этой недели. Клик по фото в шапке —
+          Имена и фото — здесь. Тег — роль, пока не нажмёте кубик. Клик по фото в шапке —
           «я пишу от этого человека».
         </p>
       </div>
@@ -38,7 +37,7 @@ export function Team() {
               value={m.name}
               onChange={(e) => patchMember(m.id, { name: e.target.value })}
             />
-            <RoleChip roleId={sprint?.roles?.[m.id]} />
+            <RoleChip roleId={state.roles?.[m.id]} />
           </li>
         ))}
       </ul>

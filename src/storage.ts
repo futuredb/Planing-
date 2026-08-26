@@ -56,6 +56,19 @@ export async function loadState(): Promise<AppState> {
   return withPersona(createEmpty())
 }
 
+export async function loadRemoteIfNewer(localUpdatedAt: number): Promise<AppState | null> {
+  try {
+    const res = await fetch('/api/state')
+    if (!res.ok) return null
+    const remote = await res.json()
+    if (!remote || !Array.isArray(remote.items)) return null
+    if (!(Number(remote.updatedAt) > localUpdatedAt)) return null
+    return withPersona(migrate(remote as AppState))
+  } catch {
+    return null
+  }
+}
+
 export async function saveState(state: AppState) {
   const { currentMemberId, ...board } = state
   const payload = JSON.stringify(board)

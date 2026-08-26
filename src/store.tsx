@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { mondayOf, nextMonday, shiftMonday, uid } from './dates'
-import { itemScore, loadState, saveMe, saveState } from './storage'
+import { itemScore, loadRemoteIfNewer, loadState, saveMe, saveState } from './storage'
 import type { AppState, Attachment, Criterion, Item, Lane } from './types'
 import type { StickerId } from './stickers'
 import { rollRoles } from './roles'
@@ -34,7 +34,7 @@ type Store = {
   decompose: (id: string, titles: string[]) => void
   linkTasks: (id: string, titles: string[]) => void
   unlinkTask: (id: string, otherId: string) => void
-  setScore: (itemId: string, criterionId: string, value: number) => void
+  setScore: (itemId: string, criterionId: string, value: number | null) => void
   addComment: (itemId: string, text: string) => void
   addCriterion: () => void
   updateCriterion: (id: string, patch: Partial<Criterion>) => void
@@ -80,6 +80,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }, 250)
     return () => clearTimeout(t)
   }, [state])
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      void loadRemoteIfNewer(state?.updatedAt ?? 0).then((remote) => {
+        if (!remote) return
+        skipSave.current = true
+        setMe(remote.currentMemberId)
+        setState(remote)
+      })
+    }, 4000)
+    return () => clearInterval(t)
+  }, [state?.updatedAt])
 
   const mutate = useCallback((fn: (prev: AppState) => AppState) => {
     setState((prev) => (prev ? bump(fn(prev)) : prev))
@@ -330,11 +342,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setScore: (itemId, criterionId, value) =>
         mutate((s) => ({
           ...s,
-          items: s.items.map((it) =>
-            it.id === itemId
-              ? { ...it, scores: { ...it.scores, [criterionId]: value } }
-              : it,
-          ),
+          items: s.items.map((it) => {
+            if (it.id !== itemId) return it
+            const scores = { ...it.scores }
+            if (value == null) delete scores[criterionId]
+            else scores[criterionId] = value
+            return { ...it, scores }
+          }),
         })),
       addComment: (itemId, text) =>
         mutate((s) => ({

@@ -155,6 +155,15 @@ export function Drawer({
             onChange={(e) => updateItem(item.id, { body: e.target.value })}
             placeholder="Описание"
           />
+          {peers.length ? (
+            <div className="related-list drawer-related">
+              {peers.map((peer) => (
+                <button key={peer.id} type="button" className="related-chip" onClick={() => onOpen(peer.id)}>
+                  {peer.title}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {item.attachments.length ? (
             <div className="thumbs">
               {item.attachments.map((a) => (

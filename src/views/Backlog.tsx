@@ -1,13 +1,96 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AssignedFace } from '../AssignedFace'
 import { memberDropBind } from '../Avatar'
 import { CardStickers } from '../StickerBar'
 import { stickerDropBind } from '../stickers'
 import { useStore } from '../store'
+import type { Criterion } from '../types'
+
+function parseScore(raw: string, criterion: Criterion): number | null {
+  const text = raw.trim().replace(',', '.')
+  if (!text) return null
+  const n = Number(text)
+  if (!Number.isFinite(n)) return null
+  const max = criterion.max || 5
+  const step = criterion.step || 0.5
+  const clamped = Math.min(max, Math.max(0, n))
+  return Math.round(clamped / step) * step
+}
+
+function ScoreCell({
+  value,
+  criterion,
+  onCommit,
+}: {
+  value: number | undefined
+  criterion: Criterion
+  onCommit: (next: number | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!editing) return
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [editing])
+
+  function start() {
+    setDraft(value == null ? '' : String(value))
+    setEditing(true)
+  }
+
+  function commit() {
+    const next = parseScore(draft, criterion)
+    const prev = value ?? null
+    setEditing(false)
+    if (next !== prev) onCommit(next)
+  }
+
+  if (!editing) {
+    return (
+      <button type="button" className="score-hit" onClick={start}>
+        {value ?? '—'}
+      </button>
+    )
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      className="score-input"
+      inputMode="decimal"
+      value={draft}
+      aria-label={criterion.name}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          commit()
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setEditing(false)
+        }
+      }}
+    />
+  )
+}
 
 export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
-  const { state, pullToSprint, addCriterion, updateCriterion, removeCriterion, scoreOf, assignItem, stickSticker } =
-    useStore()
+  const {
+    state,
+    pullToSprint,
+    addCriterion,
+    updateCriterion,
+    removeCriterion,
+    scoreOf,
+    assignItem,
+    stickSticker,
+    setScore,
+  } = useStore()
   const [settings, setSettings] = useState(false)
   const rows = state.items
     .filter((it) => it.lane === 'backlog' && !it.parentId)
@@ -63,15 +146,21 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                 <td>
                   <div className="task-cell cardish">
                     <CardStickers item={it} />
-                    <button className="link" onClick={() => onOpen(it.id)}>
-                      {it.title}
-                    </button>
+                    <div>
+                      <button className="link" onClick={() => onOpen(it.id)}>
+                        {it.title}
+                      </button>
+                    </div>
                     {owner ? <AssignedFace itemId={it.id} member={owner} /> : <span className="face empty card" />}
                   </div>
                 </td>
                 {state.criteria.map((c) => (
                   <td key={c.id} className="num">
-                    {it.scores[c.id] ?? '—'}
+                    <ScoreCell
+                      value={it.scores[c.id]}
+                      criterion={c}
+                      onCommit={(next) => setScore(it.id, c.id, next)}
+                    />
                   </td>
                 ))}
                 <td className="num score">{scoreOf(it) ?? '—'}</td>

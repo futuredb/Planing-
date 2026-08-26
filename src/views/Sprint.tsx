@@ -31,7 +31,7 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
           value={sprint?.goal ?? ''}
           onChange={(e) => setGoal(e.target.value)}
           rows={2}
-          placeholder="Цель недели — закрыть"
+          placeholder="1–2 результата за спринт от команды, которым можем поделиться"
         />
         <div className="goal-actions">
           <button
@@ -68,9 +68,7 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
                   lane={col.lane}
                   onOpen={onOpen}
                   onCarry={() => carryOver(it.id)}
-                  onArchive={() => moveItem(it.id, 'archive')}
                   showCarry={col.lane !== 'done'}
-                  showArchive={col.lane === 'done'}
                 />
               ))}
           </div>
@@ -85,17 +83,13 @@ function Card({
   lane,
   onOpen,
   onCarry,
-  onArchive,
   showCarry,
-  showArchive,
 }: {
   item: Item
   lane: Lane
   onOpen: (id: string) => void
   onCarry: () => void
-  onArchive: () => void
   showCarry: boolean
-  showArchive: boolean
 }) {
   const { state, assignItem, moveItem, weekId, stickSticker } = useStore()
   const owner = state.members.find((m) => m.id === item.assigneeId)
@@ -139,11 +133,6 @@ function Card({
       {showCarry ? (
         <button type="button" className="ghost" onClick={onCarry}>
           В следующую неделю
-        </button>
-      ) : null}
-      {showArchive ? (
-        <button type="button" className="ghost" onClick={onArchive}>
-          В архив
         </button>
       ) : null}
     </article>

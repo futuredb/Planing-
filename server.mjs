@@ -43,6 +43,32 @@ function writeAtomic(file, body) {
   fs.renameSync(tmp, file)
 }
 
+/** Stale tabs often PUT a board without relatedIds and wipe links. Keep old links unless the client sent any. */
+function preserveRelatedIds(prevText, nextText) {
+  let prev
+  let next
+  try {
+    prev = JSON.parse(prevText)
+    next = JSON.parse(nextText)
+  } catch {
+    return nextText
+  }
+  if (!Array.isArray(prev?.items) || !Array.isArray(next?.items)) return nextText
+  const incomingHasLinks = next.items.some((it) => Array.isArray(it.relatedIds) && it.relatedIds.length)
+  if (incomingHasLinks) return nextText
+  const prevById = new Map(prev.items.map((it) => [it.id, it]))
+  let changed = false
+  next.items = next.items.map((it) => {
+    const oldRel = prevById.get(it.id)?.relatedIds
+    if (oldRel?.length && !(it.relatedIds ?? []).length) {
+      changed = true
+      return { ...it, relatedIds: oldRel }
+    }
+    return it
+  })
+  return changed ? JSON.stringify(next) : nextText
+}
+
 function send(res, status, body, type = 'text/plain; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type })
   res.end(body)
@@ -79,7 +105,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'PUT') {
       const body = await readBody(req)
-      writeAtomic(stateFile, body)
+      const prev = fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf8') : ''
+      writeAtomic(stateFile, prev ? preserveRelatedIds(prev, body) : body)
       res.end(JSON.stringify({ ok: true }))
       return
     }

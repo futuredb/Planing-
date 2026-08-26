@@ -22,6 +22,31 @@ function writeAtomic(file: string, body: string) {
   fs.renameSync(tmp, file)
 }
 
+function preserveRelatedIds(prevText: string, nextText: string) {
+  let prev: { items?: { id: string; relatedIds?: string[] }[] }
+  let next: { items?: { id: string; relatedIds?: string[] }[] }
+  try {
+    prev = JSON.parse(prevText)
+    next = JSON.parse(nextText)
+  } catch {
+    return nextText
+  }
+  if (!Array.isArray(prev?.items) || !Array.isArray(next?.items)) return nextText
+  const incomingHasLinks = next.items.some((it) => Array.isArray(it.relatedIds) && it.relatedIds.length)
+  if (incomingHasLinks) return nextText
+  const prevById = new Map(prev.items.map((it) => [it.id, it]))
+  let changed = false
+  next.items = next.items.map((it) => {
+    const oldRel = prevById.get(it.id)?.relatedIds
+    if (oldRel?.length && !(it.relatedIds ?? []).length) {
+      changed = true
+      return { ...it, relatedIds: oldRel }
+    }
+    return it
+  })
+  return changed ? JSON.stringify(next) : nextText
+}
+
 function attachPersist(server: { middlewares: Connect.Server }) {
   fs.mkdirSync(path.dirname(stateFile), { recursive: true })
   server.middlewares.use(async (req, res, next) => {
@@ -43,7 +68,8 @@ function attachPersist(server: { middlewares: Connect.Server }) {
 
     if (req.method === 'PUT') {
       const body = await readBody(req)
-      writeAtomic(stateFile, body)
+      const prev = fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf8') : ''
+      writeAtomic(stateFile, prev ? preserveRelatedIds(prev, body) : body)
       res.end(JSON.stringify({ ok: true }))
       return
     }

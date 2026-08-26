@@ -26,34 +26,63 @@ function wrapTitle(title: string) {
   return lines.slice(0, 2)
 }
 
-function layout(items: Item[]): { nodes: Node[]; edges: { a: string; b: string }[] } {
-  const ids = new Set(items.map((it) => it.id))
-  const kids = new Map<string, Item[]>()
-  const roots: Item[] = []
-  for (const it of items) {
-    if (it.parentId && ids.has(it.parentId)) {
-      const list = kids.get(it.parentId) ?? []
-      list.push(it)
-      kids.set(it.parentId, list)
-    } else {
-      roots.push(it)
-    }
+function clusters(items: Item[]): Item[][] {
+  const byId = new Map(items.map((it) => [it.id, it]))
+  const adj = new Map(items.map((it) => [it.id, new Set<string>()]))
+  const link = (a: string, b: string) => {
+    if (a === b || !adj.has(a) || !adj.has(b)) return
+    adj.get(a)!.add(b)
+    adj.get(b)!.add(a)
   }
-
-  const nodes: Node[] = []
-  const cols = Math.max(1, Math.ceil(Math.sqrt(roots.length)))
-  roots.forEach((root, ri) => {
-    const gx = (ri % cols) * 420 + 220
-    const gy = Math.floor(ri / cols) * 360 + 140
-    const walk = (item: Item, x: number, y: number) => {
-      nodes.push({ id: item.id, title: item.title, x, y })
-      const children = kids.get(item.id) ?? []
-      children.forEach((child, i) => {
-        const ang = (i - (children.length - 1) / 2) * 0.85
-        walk(child, x + Math.sin(ang) * 210, y + 160)
-      })
+  for (const it of items) {
+    if (it.parentId) link(it.id, it.parentId)
+    for (const rid of it.relatedIds ?? []) link(it.id, rid)
+  }
+  const seen = new Set<string>()
+  const groups: Item[][] = []
+  for (const it of items) {
+    if (seen.has(it.id)) continue
+    const stack = [it.id]
+    const group: Item[] = []
+    seen.add(it.id)
+    while (stack.length) {
+      const id = stack.pop()!
+      const node = byId.get(id)
+      if (node) group.push(node)
+      for (const next of adj.get(id) ?? []) {
+        if (!seen.has(next)) {
+          seen.add(next)
+          stack.push(next)
+        }
+      }
     }
-    walk(root, gx, gy)
+    groups.push(group)
+  }
+  groups.sort((a, b) => b.length - a.length || a[0].title.localeCompare(b[0].title, 'ru'))
+  return groups
+}
+
+function layout(items: Item[]): { nodes: Node[]; edges: { a: string; b: string }[] } {
+  const groups = clusters(items)
+  const nodes: Node[] = []
+  const cols = Math.max(1, Math.ceil(Math.sqrt(groups.length)))
+  groups.forEach((group, gi) => {
+    const cx = (gi % cols) * 560 + 280
+    const cy = Math.floor(gi / cols) * 460 + 200
+    if (group.length === 1) {
+      nodes.push({ id: group[0].id, title: group[0].title, x: cx, y: cy })
+      return
+    }
+    const r = 90 + group.length * 16
+    group.forEach((it, i) => {
+      const ang = (i / group.length) * Math.PI * 2 - Math.PI / 2
+      nodes.push({
+        id: it.id,
+        title: it.title,
+        x: cx + Math.cos(ang) * r,
+        y: cy + Math.sin(ang) * r,
+      })
+    })
   })
 
   const index = new Map(nodes.map((n) => [n.id, n]))
@@ -263,8 +292,8 @@ export function Graph({ onOpen }: { onOpen: (id: string) => void }) {
                   y1={a.y}
                   x2={b.x}
                   y2={b.y}
-                  stroke="#d5d8de"
-                  strokeWidth="1.2"
+                  stroke="#7b838f"
+                  strokeWidth="2.2"
                 />
               )
             })}

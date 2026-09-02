@@ -67,7 +67,7 @@ export default function App() {
     <div className="app-shell">
       <aside className="side-nav" aria-label="Основная навигация">
         <button type="button" className="brand" onClick={() => navigate('sprint')} aria-label="Funban — к спринту">
-          <span className="brand-mark">F</span>
+          <img className="brand-mark" src="/funban-logo.png" alt="" />
           <span className="brand-name">Funban</span>
         </button>
         <nav className="nav-list">{views.map((item) => navButton(item))}</nav>

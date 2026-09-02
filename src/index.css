@@ -185,17 +185,11 @@ select:focus {
 }
 
 .brand-mark {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
-  place-items: center;
-  border-radius: 10px;
-  background: var(--ink);
-  color: white;
-  font-size: 18px;
-  font-weight: 800;
-  letter-spacing: -0.05em;
+  display: block;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  object-fit: contain;
 }
 
 .brand-name {

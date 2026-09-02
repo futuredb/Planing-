@@ -29,6 +29,13 @@ test.afterEach(async ({ page }) => {
   consoleErrors.delete(page)
 })
 
+test('логотип продукта загружается в навигации и favicon', async ({ page }) => {
+  const logo = page.locator('.brand-mark')
+  await expect(logo).toHaveAttribute('src', '/funban-logo.png')
+  await expect.poll(() => logo.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBeTruthy()
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/funban-logo.png')
+})
+
 test('основные разделы не создают глобальный горизонтальный скролл', async ({ page }) => {
   await expectNoPageOverflow(page)
 

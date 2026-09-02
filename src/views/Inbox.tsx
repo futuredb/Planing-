@@ -1,4 +1,5 @@
 import { useCallback, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react'
+import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
 import { cardDropBind } from '../card-drop'
 import { readMemberDrop } from '../member'
@@ -155,9 +156,12 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
                 onDrop={cardDrop.onDrop}
               >
                 <div className="inbox-item-main">
-                  <button type="button" className="inbox-title" onClick={() => onOpen(item.id)}>
-                    {item.title}
-                  </button>
+                  <div className="task-title-line">
+                    <button type="button" className="inbox-title" onClick={() => onOpen(item.id)}>
+                      {item.title}
+                    </button>
+                    <AgentBadge item={item} compact />
+                  </div>
                   {item.body ? <p>{item.body}</p> : null}
                   <div className="inbox-meta">
                     {author ? (

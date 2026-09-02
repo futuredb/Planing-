@@ -158,6 +158,7 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
     await client.callTool({ name: 'create_task', arguments: request }),
   )
   assert.equal(first.task.assignee.name, 'Лиля')
+  assert.equal(first.task.createdVia, 'agent')
   assert.equal(first.deduplicated, false)
 
   const repeated = jsonResult(
@@ -205,6 +206,10 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
   assert.equal(
     storedAfterMcp.items.filter((item) => item.id === first.task.id).length,
     1,
+  )
+  assert.equal(
+    storedAfterMcp.items.find((item) => item.id === first.task.id).createdVia,
+    'agent',
   )
   assert.ok(storedAfterMcp.items[0].relatedIds.includes('existing-1'))
   assert.ok(

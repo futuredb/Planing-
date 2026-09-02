@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { AgentBadge } from '../AgentBadge'
 import { Avatar } from '../Avatar'
 import { memberDropBind } from '../member'
 import { ReactionBar } from '../StickerBar'
@@ -124,6 +125,7 @@ export function Drawer({
           <header className="drawer-head">
             <div className="drawer-heading">
               <span className={`lane-badge lane-${item.lane}`}>{laneName(item.lane)}</span>
+              <AgentBadge item={item} />
               <span className="autosave">Сохраняется автоматически</span>
             </div>
             <div className="drawer-head-actions">

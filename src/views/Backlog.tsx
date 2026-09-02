@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
 import { cardDropBind } from '../card-drop'
 import { ReactionBar } from '../StickerBar'
@@ -158,9 +159,12 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                     >
                       <td>
                         <div className="backlog-task">
-                          <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
-                            {item.title}
-                          </button>
+                          <div className="task-title-line">
+                            <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
+                              {item.title}
+                            </button>
+                            <AgentBadge item={item} compact />
+                          </div>
                           <div className="backlog-meta">
                             {owner ? (
                               <span className="owner-chip">
@@ -219,9 +223,12 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                   onDrop={cardDrop.onDrop}
                 >
                   <div className="mobile-task-head">
-                    <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
-                      {item.title}
-                    </button>
+                    <div className="task-title-line">
+                      <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
+                        {item.title}
+                      </button>
+                      <AgentBadge item={item} compact />
+                    </div>
                     <span className="score-badge">{scoreOf(item) ?? '—'}</span>
                   </div>
                   <div className="mobile-task-foot">

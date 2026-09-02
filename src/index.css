@@ -903,6 +903,46 @@ select:focus {
   gap: 6px;
 }
 
+.task-title-line {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-title-line > button {
+  min-width: 0;
+}
+
+.agent-badge {
+  display: inline-flex;
+  min-height: 22px;
+  width: max-content;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--muted-strong);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.agent-badge svg {
+  color: var(--accent);
+}
+
+.agent-badge.compact {
+  min-height: 19px;
+  padding: 0 6px;
+  font-size: 9px;
+}
+
 .task-title {
   min-width: 0;
   padding: 1px 0;
@@ -917,7 +957,7 @@ select:focus {
 .task-title:hover,
 .backlog-title:hover,
 .inbox-title:hover,
-.archive-copy > button:hover {
+.archive-copy > .task-title-line > button:hover {
   color: var(--accent);
 }
 
@@ -1188,9 +1228,15 @@ select:focus {
   gap: 7px;
 }
 
+.backlog-task .task-title-line,
+.inbox-item-main .task-title-line,
+.archive-copy .task-title-line {
+  align-items: center;
+}
+
 .backlog-title,
 .inbox-title,
-.archive-copy > button {
+.archive-copy > .task-title-line > button {
   padding: 0;
   background: transparent;
   color: var(--ink);

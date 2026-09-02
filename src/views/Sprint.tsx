@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type DragEvent } from 'react'
+import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
 import { cardDropBind } from '../card-drop'
 import { ReactionBar } from '../StickerBar'
@@ -203,9 +204,12 @@ function SprintCard({
       onDrop={cardDrop.onDrop}
     >
       <div className="task-card-top">
-        <button type="button" className="task-title" onClick={() => onOpen(item.id)}>
-          {item.title}
-        </button>
+        <div className="task-title-line">
+          <button type="button" className="task-title" onClick={() => onOpen(item.id)}>
+            {item.title}
+          </button>
+          <AgentBadge item={item} compact />
+        </div>
         <div className="menu-wrap">
           <button
             type="button"

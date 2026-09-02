@@ -109,6 +109,7 @@ function taskView(state, item, publicUrl) {
     parentId: item.parentId,
     relatedTaskIds: item.relatedIds ?? [],
     scores: item.scores ?? {},
+    createdVia: item.createdVia ?? null,
     url: publicUrl,
   }
 }
@@ -251,6 +252,7 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
                 scores: validateScores(state, input.scores),
                 attachments: [],
                 stickers: [],
+                createdVia: 'agent',
                 createdAt: now,
                 archivedAt: null,
               }

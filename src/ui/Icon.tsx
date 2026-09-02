@@ -22,6 +22,7 @@ export type IconName =
   | 'zoom-in'
   | 'zoom-out'
   | 'trash'
+  | 'agent'
 
 const paths: Record<IconName, ReactNode> = {
   sprint: <><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8 9h8M8 13h5M8 17h7"/></>,
@@ -45,6 +46,7 @@ const paths: Record<IconName, ReactNode> = {
   'zoom-in': <><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5M10 7v6M7 10h6"/></>,
   'zoom-out': <><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5M7 10h6"/></>,
   trash: <><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></>,
+  agent: <><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><path d="m6.4 6.4 2.1 2.1M15.5 15.5l2.1 2.1M17.6 6.4l-2.1 2.1M8.5 15.5l-2.1 2.1"/><circle cx="12" cy="12" r="3"/></>,
 }
 
 export function Icon({ name, size = 18, className }: { name: IconName; size?: number; className?: string }) {

@@ -1,4 +1,5 @@
 import { AssignedFace } from '../AssignedFace'
+import { AgentBadge } from '../AgentBadge'
 import { ReactionBar } from '../StickerBar'
 import { useStore } from '../store-context'
 import type { Item } from '../types'
@@ -56,7 +57,10 @@ function ArchiveRow({
   return (
     <li>
       <div className="archive-copy">
-        <button type="button" onClick={() => onOpen(item.id)}>{item.title}</button>
+        <div className="task-title-line">
+          <button type="button" onClick={() => onOpen(item.id)}>{item.title}</button>
+          <AgentBadge item={item} compact />
+        </div>
         <div>
           <time>{new Date(when).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</time>
           {owner ? (

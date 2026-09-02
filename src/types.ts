@@ -49,6 +49,7 @@ export type Item = {
   scores: Record<string, number>
   attachments: Attachment[]
   stickers: PlacedSticker[]
+  createdVia?: 'agent'
   createdAt: number
   archivedAt: number | null
 }

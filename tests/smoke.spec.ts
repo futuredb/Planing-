@@ -149,6 +149,27 @@ test('идея быстро добавляется во входящие', async
   await expect(page.getByRole('button', { name: 'Проверить новый сценарий', exact: true })).toBeVisible()
 })
 
+test('задача от агента помечена на карточке и в инспекторе', async ({ page }) => {
+  const state = await page.request.get('/api/state').then((response) => response.json())
+  const item = state.items.find(
+    (candidate: { title: string }) => candidate.title === 'Автозаполнение реквизитов в онбординге',
+  )
+  item.createdVia = 'agent'
+  const saved = await page.request.put('/api/state', { data: state })
+  expect(saved.ok()).toBeTruthy()
+
+  await page.reload()
+  const card = page.locator('.task-card').filter({ hasText: item.title })
+  await expect(card.getByLabel('Задача создана через AI-агента')).toBeVisible()
+
+  await card.getByRole('button', { name: item.title, exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: `Задача: ${item.title}` })
+  await expect(dialog.getByLabel('Задача создана через AI-агента')).toBeVisible()
+
+  const regularCard = page.locator('.task-card').filter({ hasText: 'Проверка шагов онбординга' })
+  await expect(regularCard.getByLabel('Задача создана через AI-агента')).toHaveCount(0)
+})
+
 test('роли меняются только после подтверждения и сохраняются у недели', async ({ page }) => {
   await page.getByRole('button', { name: 'Команда', exact: true }).click()
   await expect(page.getByText('Выбрать себя')).toHaveCount(0)

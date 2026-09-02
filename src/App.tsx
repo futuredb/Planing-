@@ -97,60 +97,66 @@ export default function App() {
         </div>
 
         <div className="roles-wrap">
+          <div className="roles-dock" aria-label="Роли команды на выбранной неделе">
+            <div className="role-source-list">
+              {state.members.map((member) => (
+                <div
+                  className="role-drag-source"
+                  key={member.id}
+                  title={`${member.name}: перетащите аватар на карточку`}
+                >
+                  <Avatar member={member} size="sm" draggable />
+                  <RoleChip roleId={state.roles?.[member.id]} />
+                </div>
+              ))}
+            </div>
             <button
               type="button"
-              className="roles-button"
+              className="icon-button roles-menu-button"
               onClick={() => setRolesOpen((open) => !open)}
+              aria-label="Подробнее о ролях"
               aria-expanded={rolesOpen}
               aria-haspopup="dialog"
             >
-              <span className="avatar-stack" aria-hidden="true">
-                {state.members.slice(0, 3).map((member) => (
-                  <Avatar key={member.id} member={member} size="sm" />
-                ))}
-              </span>
-              <span className="roles-copy">
-                <small>{liveWeek ? 'Эта неделя' : 'Выбранная неделя'}</small>
-                <strong>Роли команды</strong>
-              </span>
               <Icon name="more" />
             </button>
-            {rolesOpen ? (
-              <div className="crew-popover" role="dialog" aria-label="Роли этой недели">
-                <div className="popover-head">
-                  <div>
-                    <strong>Роли этой недели</strong>
-                    <span>Распределяются на планировании во вторник и действуют всю неделю.</span>
-                  </div>
-                  <button type="button" className="icon-button" onClick={() => setRolesOpen(false)} aria-label="Закрыть">
-                    <Icon name="close" />
-                  </button>
+          </div>
+          {rolesOpen ? (
+            <div className="crew-popover" role="dialog" aria-label="Роли этой недели">
+              <div className="popover-head">
+                <div>
+                  <strong>Роли этой недели</strong>
+                  <span>Распределяются на планировании во вторник и действуют всю неделю.</span>
                 </div>
-                <div className="crew-list">
-                  {state.members.map((member) => (
-                    <div className="crew-option" key={member.id}>
-                      <Avatar member={member} size="md" />
-                      <span>
-                        <strong>{member.name}</strong>
-                        <RoleChip roleId={state.roles?.[member.id]} />
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="secondary-button popover-action"
-                  onClick={() => {
-                    setRolesOpen(false)
-                    setConfirmRoles(true)
-                  }}
-                >
-                  <Icon name="dice" />
-                  Перемешать роли…
+                <button type="button" className="icon-button" onClick={() => setRolesOpen(false)} aria-label="Закрыть">
+                  <Icon name="close" />
                 </button>
               </div>
-            ) : null}
-          </div>
+              <div className="crew-list">
+                {state.members.map((member) => (
+                  <div className="crew-option" key={member.id}>
+                    <Avatar member={member} size="md" />
+                    <span>
+                      <strong>{member.name}</strong>
+                      <RoleChip roleId={state.roles?.[member.id]} />
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="secondary-button popover-action"
+                onClick={() => {
+                  setRolesOpen(false)
+                  setConfirmRoles(true)
+                }}
+              >
+                <Icon name="dice" />
+                Перемешать роли…
+              </button>
+            </div>
+          ) : null}
+        </div>
       </header>
 
       <div className="app-main">

@@ -139,7 +139,14 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                   const owner = state.members.find((member) => member.id === item.assigneeId)
                   const memberDrop = memberDropBind((id, from) => assignItem(item.id, id, from))
                   return (
-                    <tr key={item.id} onDragOver={memberDrop.onDragOver} onDrop={memberDrop.onDrop}>
+                    <tr
+                      key={item.id}
+                      className="member-drop-zone"
+                      onDragEnter={memberDrop.onDragEnter}
+                      onDragOver={memberDrop.onDragOver}
+                      onDragLeave={memberDrop.onDragLeave}
+                      onDrop={memberDrop.onDrop}
+                    >
                       <td>
                         <div className="backlog-task">
                           <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
@@ -184,8 +191,16 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
           <ul className="backlog-mobile">
             {rows.map((item) => {
               const owner = state.members.find((member) => member.id === item.assigneeId)
+              const memberDrop = memberDropBind((id, from) => assignItem(item.id, id, from))
               return (
-                <li key={item.id}>
+                <li
+                  key={item.id}
+                  className="member-drop-zone"
+                  onDragEnter={memberDrop.onDragEnter}
+                  onDragOver={memberDrop.onDragOver}
+                  onDragLeave={memberDrop.onDragLeave}
+                  onDrop={memberDrop.onDrop}
+                >
                   <div className="mobile-task-head">
                     <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
                       {item.title}

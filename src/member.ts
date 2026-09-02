@@ -25,6 +25,14 @@ export function startMemberDrag(event: DragEvent, memberId: string, fromItemId?:
     beginDetach({ kind: 'member', itemId: fromItemId })
   }
   event.dataTransfer.effectAllowed = 'copyMove'
+  document.documentElement.classList.add('member-drag-active')
+}
+
+export function endMemberDrag() {
+  document.documentElement.classList.remove('member-drag-active')
+  document.querySelectorAll('.member-drop-over').forEach((element) => {
+    element.classList.remove('member-drop-over')
+  })
 }
 
 export function readMemberFromItem(event: DragEvent) {
@@ -42,16 +50,33 @@ export function readMemberDrop(event: DragEvent) {
 export function memberDropBind(
   onAssign: (memberId: string, fromItemId?: string | null) => void,
 ) {
+  function isMemberDrag(event: DragEvent) {
+    return Array.from(event.dataTransfer.types).some(
+      (type) => type === MEMBER_MIME || type === 'text/plain',
+    )
+  }
+
   return {
+    onDragEnter: (event: DragEvent) => {
+      if (!isMemberDrag(event)) return
+      event.currentTarget.classList.add('member-drop-over')
+    },
     onDragOver: (event: DragEvent) => {
+      if (!isMemberDrag(event)) return
       event.preventDefault()
       event.dataTransfer.dropEffect = 'copy'
+    },
+    onDragLeave: (event: DragEvent) => {
+      const next = event.relatedTarget
+      if (next instanceof Node && event.currentTarget.contains(next)) return
+      event.currentTarget.classList.remove('member-drop-over')
     },
     onDrop: (event: DragEvent) => {
       const memberId = readMemberDrop(event)
       if (!memberId) return
       event.preventDefault()
       event.stopPropagation()
+      event.currentTarget.classList.remove('member-drop-over')
       markDropConsumed()
       onAssign(memberId, readMemberFromItem(event) || null)
     },

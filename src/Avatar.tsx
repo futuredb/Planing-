@@ -1,5 +1,5 @@
 import type { Member } from './types'
-import { memberAvatar, startMemberDrag } from './member'
+import { endMemberDrag, memberAvatar, startMemberDrag } from './member'
 
 export function Avatar({
   member,
@@ -42,9 +42,12 @@ export function Avatar({
         e.stopPropagation()
         startMemberDrag(e, member.id, fromItemId)
       }}
-      onDragEnd={onDragEnd}
-      title={member.name}
-      aria-label={member.name}
+      onDragEnd={() => {
+        endMemberDrag()
+        onDragEnd?.()
+      }}
+      title={draggable ? `Перетащить ${member.name} на карточку` : member.name}
+      aria-label={draggable ? `Перетащить ${member.name} на карточку` : member.name}
     >
       <img src={memberAvatar(member)} alt="" draggable={false} />
     </button>

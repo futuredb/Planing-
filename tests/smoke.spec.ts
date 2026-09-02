@@ -88,6 +88,27 @@ test('задача двигается по спринту и реакция со
   await expect(movedCard.getByLabel(/звезда, реакций:/)).toBeVisible()
 })
 
+test('роли видны в шапке, а аватар назначает исполнителя перетаскиванием', async ({ page }) => {
+  const rolesDock = page.getByLabel('Роли команды на выбранной неделе')
+  const roleChips = rolesDock.locator('.role-chip')
+  await expect(roleChips).toHaveCount(5)
+  await expect(roleChips.first()).toBeVisible()
+  expect((await roleChips.allTextContents()).every((role) => role.trim().length > 0)).toBeTruthy()
+
+  const source = rolesDock.getByRole('button', {
+    name: 'Перетащить Лиля на карточку',
+    exact: true,
+  })
+  const card = page.locator('.task-card').filter({ hasText: 'Автозаполнение реквизитов' })
+  await source.dragTo(card)
+  await expect(card.locator('.owner-chip')).toContainText('Лиля')
+
+  await page.waitForTimeout(400)
+  await page.reload()
+  const savedCard = page.locator('.task-card').filter({ hasText: 'Автозаполнение реквизитов' })
+  await expect(savedCard.locator('.owner-chip')).toContainText('Лиля')
+})
+
 test('инспектор редактирует оценку и закрывается по Escape', async ({ page }) => {
   await page.getByRole('button', { name: 'Бэклог', exact: true }).click()
   await page.getByRole('button', { name: 'Подсказки в форме, если банк не находится', exact: true }).click()

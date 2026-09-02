@@ -179,7 +179,7 @@ function SprintCard({
 
   return (
     <article
-      className="task-card"
+      className="task-card member-drop-zone"
       draggable
       onDragStart={(event) => {
         if ((event.target as HTMLElement).closest('button, input, textarea, select')) {
@@ -189,7 +189,9 @@ function SprintCard({
         event.dataTransfer.setData('text/id', item.id)
         event.dataTransfer.effectAllowed = 'move'
       }}
+      onDragEnter={memberDrop.onDragEnter}
       onDragOver={memberDrop.onDragOver}
+      onDragLeave={memberDrop.onDragLeave}
       onDrop={memberDrop.onDrop}
     >
       <div className="task-card-top">

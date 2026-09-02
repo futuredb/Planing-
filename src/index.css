@@ -359,57 +359,97 @@ select:focus {
   position: relative;
 }
 
-.roles-button {
+.roles-wrap {
+  min-width: 0;
+  max-width: min(760px, calc(100vw - var(--sidebar) - 300px));
+}
+
+.roles-dock {
   display: flex;
-  min-height: 48px;
+  min-width: 0;
+  min-height: 58px;
   align-items: center;
-  gap: 10px;
-  padding: 5px 8px 5px 6px;
+  gap: 5px;
+  padding: 3px 4px 3px 6px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.72);
   color: var(--ink);
 }
 
-.roles-button:hover {
+.roles-dock:hover {
   border-color: var(--line-strong);
   background: var(--surface);
 }
 
-.avatar-stack {
+.role-source-list {
   display: flex;
+  min-width: 0;
   align-items: center;
-  padding-left: 2px;
+  gap: 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
 }
 
-.avatar-stack .face {
+.role-source-list::-webkit-scrollbar {
+  display: none;
+}
+
+.role-drag-source {
+  position: relative;
+  display: grid;
+  width: 68px;
+  height: 50px;
+  flex: 0 0 68px;
+  place-items: start center;
+  padding-top: 1px;
+  border-radius: 10px;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.role-drag-source:hover {
+  background: var(--surface-subtle);
+}
+
+.role-drag-source .face.sm {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
   border-color: var(--surface);
+  cursor: grab;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
-.avatar-stack .face + .face {
-  margin-left: -11px;
+.role-drag-source .face.sm:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  transform: translateY(-1px);
 }
 
-.roles-copy {
-  display: flex;
-  min-width: 72px;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  line-height: 1.1;
+.role-drag-source .face.sm:active {
+  cursor: grabbing;
+  transform: scale(0.96);
 }
 
-.roles-copy small {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.roles-copy strong {
-  max-width: 110px;
+.role-drag-source .role-chip {
+  position: absolute;
+  z-index: 1;
+  bottom: 0;
+  left: 50%;
+  min-height: 19px;
+  max-width: 68px;
+  padding: 0 6px;
   overflow: hidden;
-  font-size: 13px;
+  border-color: var(--surface);
+  font-size: 9px;
+  line-height: 1;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.roles-menu-button {
+  flex-shrink: 0;
 }
 
 .crew-popover,
@@ -831,6 +871,52 @@ select:focus {
 
 .task-card:active {
   cursor: grabbing;
+}
+
+.member-drag-active .member-drop-zone {
+  cursor: copy;
+}
+
+.member-drag-active .task-card.member-drop-zone {
+  border-color: #b8c9f4;
+  border-style: dashed;
+  background: #fbfcff;
+}
+
+.member-drag-active .backlog-table tr.member-drop-zone td,
+.member-drag-active .inbox-list > li.member-drop-zone,
+.member-drag-active .backlog-mobile > li.member-drop-zone {
+  background: #fbfcff;
+}
+
+.task-card.member-drop-over {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14), 0 12px 26px rgba(25, 32, 27, 0.08);
+  transform: translateY(-2px);
+}
+
+.backlog-table tr.member-drop-over td {
+  background: var(--accent-soft);
+  box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent);
+}
+
+.backlog-table tr.member-drop-over td:first-child {
+  box-shadow: inset 2px 2px 0 var(--accent), inset 0 -2px 0 var(--accent);
+}
+
+.backlog-table tr.member-drop-over td:last-child {
+  box-shadow: inset -2px 2px 0 var(--accent), inset 0 -2px 0 var(--accent);
+}
+
+.inbox-list > li.member-drop-over,
+.backlog-mobile > li.member-drop-over {
+  position: relative;
+  z-index: 1;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .task-card-top {
@@ -2281,8 +2367,12 @@ button.linked-row {
 
   .context-bar {
     grid-column: auto;
-    height: 64px;
-    padding: 0 12px;
+    display: grid;
+    height: 120px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 52px 56px;
+    gap: 4px;
+    padding: 4px 12px;
   }
 
   .week-switcher {
@@ -2317,21 +2407,34 @@ button.linked-row {
     font-size: 10px;
   }
 
-  .roles-button {
-    min-height: 44px;
-    padding: 4px;
+  .roles-wrap {
+    width: 100%;
+    max-width: none;
+  }
+
+  .roles-dock {
+    min-height: 56px;
+    padding: 2px 2px 2px 4px;
     border: 0;
     background: transparent;
   }
 
-  .roles-button > svg,
-  .roles-copy {
-    display: none;
+  .role-source-list {
+    gap: 0;
+  }
+
+  .role-drag-source {
+    width: 64px;
+    flex-basis: 64px;
+  }
+
+  .role-drag-source .role-chip {
+    max-width: 64px;
   }
 
   .crew-popover {
     position: fixed;
-    top: 70px;
+    top: 126px;
     right: 10px;
     left: 10px;
     width: auto;
@@ -2616,7 +2719,7 @@ button.linked-row {
   }
 
   .graph-page {
-    height: calc(100svh - 64px - 74px - 44px);
+    height: calc(100svh - 120px - 74px - 44px);
     min-height: 560px;
   }
 

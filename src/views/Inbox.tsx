@@ -137,7 +137,14 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
             const author = state.members.find((member) => member.id === item.authorId)
             const memberDrop = memberDropBind((id, from) => assignItem(item.id, id, from))
             return (
-              <li key={item.id} onDragOver={memberDrop.onDragOver} onDrop={memberDrop.onDrop}>
+              <li
+                key={item.id}
+                className="member-drop-zone"
+                onDragEnter={memberDrop.onDragEnter}
+                onDragOver={memberDrop.onDragOver}
+                onDragLeave={memberDrop.onDragLeave}
+                onDrop={memberDrop.onDrop}
+              >
                 <div className="inbox-item-main">
                   <button type="button" className="inbox-title" onClick={() => onOpen(item.id)}>
                     {item.title}

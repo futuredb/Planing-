@@ -1,140 +1,254 @@
-import type { DragEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { AssignedFace } from '../AssignedFace'
-import { memberDropBind } from '../Avatar'
-import { CardStickers } from '../StickerBar'
-import { stickerDropBind } from '../stickers'
-import { useStore } from '../store'
+import { memberDropBind } from '../member'
+import { ReactionBar } from '../StickerBar'
+import { useStore } from '../store-context'
 import type { Item, Lane } from '../types'
+import { Icon } from '../ui/Icon'
 
-const columns: { lane: Lane; title: string }[] = [
-  { lane: 'todo', title: 'Спринт' },
-  { lane: 'doing', title: 'В работе' },
-  { lane: 'done', title: 'Готово' },
+const columns: { lane: Lane; title: string; empty: string }[] = [
+  { lane: 'todo', title: 'Спринт', empty: 'Задачи на эту неделю появятся здесь.' },
+  { lane: 'doing', title: 'В работе', empty: 'Перетащите сюда то, что уже начали.' },
+  { lane: 'done', title: 'Готово', empty: 'Завершённые задачи ждут здесь.' },
 ]
 
 export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
-  const { state, weekId, setGoal, toggleGoalClosed, moveItem, carryOver, closeSprint } =
-    useStore()
-  const sprint = state.sprints.find((s) => s.id === weekId)
-  const inSprint = state.items.filter((it) => it.sprintId === weekId && it.lane !== 'archive')
+  const { state, weekId, setGoal, toggleGoalClosed, moveItem, closeSprint } = useStore()
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
+  const boardRef = useRef<HTMLDivElement>(null)
+  const goalRef = useRef<HTMLTextAreaElement>(null)
+  const sprint = state.sprints.find((candidate) => candidate.id === weekId)
+  const inSprint = state.items.filter((item) => item.sprintId === weekId && item.lane !== 'archive')
 
-  function onDrop(lane: Lane, e: DragEvent) {
-    if (e.dataTransfer.getData('text/plain').startsWith('sticker:')) return
-    const id = e.dataTransfer.getData('text/id')
+  useLayoutEffect(() => {
+    const goal = goalRef.current
+    if (!goal) return
+
+    goal.style.height = 'auto'
+    goal.style.height = `${goal.scrollHeight}px`
+  }, [sprint?.goal, weekId])
+
+  function onDrop(lane: Lane, event: DragEvent) {
+    const id = event.dataTransfer.getData('text/id')
     if (id) moveItem(id, lane, weekId)
   }
 
+  function scrollLane(lane: Lane) {
+    boardRef.current?.querySelector<HTMLElement>(`[data-lane="${lane}"]`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'start',
+    })
+  }
+
   return (
-    <section className="page">
-      <div className="goal">
-        <textarea
-          value={sprint?.goal ?? ''}
-          onChange={(e) => setGoal(e.target.value)}
-          rows={2}
-          placeholder="1–2 результата за спринт от команды, которым можем поделиться"
-        />
-        <div className="goal-actions">
+    <section className="page sprint-page">
+      <div className="sprint-summary">
+        <div className="goal-field">
+          <span className="eyebrow">Цель недели</span>
+          <textarea
+            ref={goalRef}
+            value={sprint?.goal ?? ''}
+            onChange={(event) => setGoal(event.target.value)}
+            rows={1}
+            aria-label="Цель недели"
+            placeholder="Один понятный результат, ради которого идёт спринт"
+          />
+        </div>
+        <div className="summary-actions">
           <button
             type="button"
-            className={sprint?.goalClosed ? 'primary' : ''}
+            className={`goal-status${sprint?.goalClosed ? ' complete' : ''}`}
             onClick={toggleGoalClosed}
           >
-            {sprint?.goalClosed ? 'Цель закрыта' : 'Закрыть цель'}
+            <Icon name="check" />
+            {sprint?.goalClosed ? 'Цель закрыта' : 'Отметить результат'}
           </button>
-          <button type="button" onClick={closeSprint}>
-            Закрыть спринт
-          </button>
+          <div className="menu-wrap">
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => setActionsOpen((open) => !open)}
+              aria-label="Действия со спринтом"
+              aria-expanded={actionsOpen}
+            >
+              <Icon name="more" />
+            </button>
+            {actionsOpen ? (
+              <div className="action-menu">
+                <button
+                  type="button"
+                  className="danger-text"
+                  onClick={() => {
+                    setActionsOpen(false)
+                    setConfirmClose(true)
+                  }}
+                >
+                  Закрыть спринт…
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <div className="board">
-        {columns.map((col) => (
-          <div
-            key={col.lane}
-            className="col"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => onDrop(col.lane, e)}
-          >
-            <h3>
-              {col.title}
-              <span>{inSprint.filter((it) => it.lane === col.lane).length}</span>
-            </h3>
-            {inSprint
-              .filter((it) => it.lane === col.lane)
-              .map((it) => (
-                <Card
-                  key={it.id}
-                  item={it}
-                  lane={col.lane}
-                  onOpen={onOpen}
-                  onCarry={() => carryOver(it.id)}
-                  showCarry={col.lane !== 'done'}
-                />
-              ))}
-          </div>
+      {sprint?.closed ? (
+        <div className="inline-notice">
+          <Icon name="check" />
+          Этот спринт закрыт. Незавершённые задачи перенесены на следующую неделю.
+        </div>
+      ) : null}
+
+      <div className="lane-tabs" aria-label="Колонки спринта">
+        {columns.map((column) => (
+          <button type="button" key={column.lane} onClick={() => scrollLane(column.lane)}>
+            {column.title}
+            <span>{inSprint.filter((item) => item.lane === column.lane).length}</span>
+          </button>
         ))}
       </div>
+
+      <div className="board" ref={boardRef}>
+        {columns.map((column) => {
+          const items = inSprint.filter((item) => item.lane === column.lane)
+          return (
+            <section
+              key={column.lane}
+              className="board-column"
+              data-lane={column.lane}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => onDrop(column.lane, event)}
+            >
+              <header className="column-head">
+                <h2>{column.title}</h2>
+                <span>{items.length}</span>
+              </header>
+              <div className="column-list">
+                {items.map((item) => (
+                  <SprintCard key={item.id} item={item} lane={column.lane} onOpen={onOpen} />
+                ))}
+                {!items.length ? <div className="column-empty">{column.empty}</div> : null}
+              </div>
+            </section>
+          )
+        })}
+      </div>
+
+      {confirmClose ? (
+        <div className="confirm-backdrop" onClick={() => setConfirmClose(false)}>
+          <div className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="close-sprint-title" onClick={(event) => event.stopPropagation()}>
+            <span className="confirm-icon"><Icon name="archive" /></span>
+            <h2 id="close-sprint-title">Закрыть этот спринт?</h2>
+            <p>Готовые задачи уйдут в архив, остальные — в спринт следующей недели.</p>
+            <div className="dialog-actions">
+              <button type="button" className="secondary-button" onClick={() => setConfirmClose(false)}>
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() => {
+                  closeSprint()
+                  setConfirmClose(false)
+                }}
+              >
+                Закрыть спринт
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
 
-function Card({
+function SprintCard({
   item,
   lane,
   onOpen,
-  onCarry,
-  showCarry,
 }: {
   item: Item
   lane: Lane
   onOpen: (id: string) => void
-  onCarry: () => void
-  showCarry: boolean
 }) {
-  const { state, assignItem, moveItem, weekId, stickSticker } = useStore()
-  const owner = state.members.find((m) => m.id === item.assigneeId)
-  const memberDrop = memberDropBind((memberId, from) =>
-    assignItem(item.id, memberId, from),
-  )
-  const stickerDrop = stickerDropBind((sticker, place, from) =>
-    stickSticker(item.id, sticker, place, from),
-  )
+  const { state, assignItem, moveItem, weekId, carryOver } = useStore()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const owner = state.members.find((member) => member.id === item.assigneeId)
+  const memberDrop = memberDropBind((memberId, from) => assignItem(item.id, memberId, from))
 
   return (
     <article
-      className="card"
+      className="task-card"
       draggable
-      onDragStart={(e) => {
-        if ((e.target as HTMLElement).closest('.stuck, .face, .card-head')) {
-          e.preventDefault()
+      onDragStart={(event) => {
+        if ((event.target as HTMLElement).closest('button, input, textarea, select')) {
+          event.preventDefault()
           return
         }
-        e.dataTransfer.setData('text/id', item.id)
+        event.dataTransfer.setData('text/id', item.id)
+        event.dataTransfer.effectAllowed = 'move'
       }}
-      onDragOver={(e) => {
-        stickerDrop.onDragOver(e)
-        memberDrop.onDragOver(e)
-      }}
-      onDrop={(e) => {
-        stickerDrop.onDrop(e)
-        if (e.defaultPrevented) return
-        memberDrop.onDrop(e)
-        const id = e.dataTransfer.getData('text/id')
-        if (id) moveItem(id, lane, weekId)
-      }}
+      onDragOver={memberDrop.onDragOver}
+      onDrop={memberDrop.onDrop}
     >
-      <CardStickers item={item} />
-      <button className="card-main" onClick={() => onOpen(item.id)}>
-        <strong>{item.title}</strong>
-      </button>
-      <div className="card-head">
-        {owner ? <AssignedFace itemId={item.id} member={owner} /> : <span className="face empty card" />}
-      </div>
-      {showCarry ? (
-        <button type="button" className="ghost" onClick={onCarry}>
-          В следующую неделю
+      <div className="task-card-top">
+        <button type="button" className="task-title" onClick={() => onOpen(item.id)}>
+          {item.title}
         </button>
-      ) : null}
+        <div className="menu-wrap">
+          <button
+            type="button"
+            className="icon-button subtle"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-label="Действия с задачей"
+            aria-expanded={menuOpen}
+          >
+            <Icon name="more" />
+          </button>
+          {menuOpen ? (
+            <div className="action-menu card-menu">
+              {columns
+                .filter((column) => column.lane !== lane)
+                .map((column) => (
+                  <button
+                    type="button"
+                    key={column.lane}
+                    onClick={() => {
+                      moveItem(item.id, column.lane, weekId)
+                      setMenuOpen(false)
+                    }}
+                  >
+                    В «{column.title}»
+                  </button>
+                ))}
+              {lane !== 'done' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    carryOver(item.id)
+                    setMenuOpen(false)
+                  }}
+                >
+                  На следующую неделю
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {item.body ? <p className="task-preview">{item.body}</p> : null}
+      <div className="task-card-bottom">
+        {owner ? (
+          <div className="owner-chip">
+            <AssignedFace itemId={item.id} member={owner} />
+            <span>{owner.name}</span>
+          </div>
+        ) : (
+          <span className="unassigned">Без исполнителя</span>
+        )}
+        <ReactionBar item={item} compact />
+      </div>
     </article>
   )
 }

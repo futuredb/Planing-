@@ -1,7 +1,7 @@
 import type { Member } from './types'
 import { Avatar } from './Avatar'
 import { endDetach } from './detach'
-import { useStore } from './store'
+import { useStore } from './store-context'
 
 export function AssignedFace({
   itemId,

@@ -1,10 +1,20 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Avatar, memberDropBind } from '../Avatar'
-import { CardStickers } from '../StickerBar'
+import { Avatar } from '../Avatar'
+import { memberDropBind } from '../member'
+import { ReactionBar } from '../StickerBar'
 import { filesToAttachments } from '../storage'
-import { stickerDropBind } from '../stickers'
-import { useStore } from '../store'
+import { useStore } from '../store-context'
 import type { Attachment, Item, Lane } from '../types'
+import { Icon } from '../ui/Icon'
+
+type DrawerTab = 'details' | 'score' | 'links' | 'comments'
+
+const tabs: { id: DrawerTab; label: string }[] = [
+  { id: 'details', label: 'Детали' },
+  { id: 'score', label: 'Оценка' },
+  { id: 'links', label: 'Связи' },
+  { id: 'comments', label: 'Комментарии' },
+]
 
 export function Drawer({
   item,
@@ -17,6 +27,7 @@ export function Drawer({
 }) {
   const {
     state,
+    weekId,
     updateItem,
     removeItem,
     pullToSprint,
@@ -29,20 +40,38 @@ export function Drawer({
     addComment,
     scoreOf,
     assignItem,
-    stickSticker,
   } = useStore()
+  const [tab, setTab] = useState<DrawerTab>('details')
   const [parts, setParts] = useState('')
   const [comment, setComment] = useState('')
   const [preview, setPreview] = useState<Attachment | null>(null)
-  const children = state.items.filter((it) => it.parentId === item.id)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const children = state.items.filter((candidate) => candidate.parentId === item.id)
   const peers = (item.relatedIds ?? [])
-    .map((id) => state.items.find((it) => it.id === id))
-    .filter((it): it is Item => Boolean(it))
-  const thread = state.comments.filter((c) => c.itemId === item.id)
-  const parent = state.items.find((it) => it.id === item.parentId)
+    .map((id) => state.items.find((candidate) => candidate.id === id))
+    .filter((candidate): candidate is Item => Boolean(candidate))
+  const thread = state.comments.filter((entry) => entry.itemId === item.id)
+  const parent = state.items.find((candidate) => candidate.id === item.parentId)
+  const memberDrop = memberDropBind((id, from) => assignItem(item.id, id, from))
 
-  function sendComment(e: FormEvent) {
-    e.preventDefault()
+  useEffect(() => {
+    document.body.classList.add('modal-open')
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (preview) setPreview(null)
+      else if (confirmDelete) setConfirmDelete(false)
+      else onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.classList.remove('modal-open')
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [confirmDelete, onClose, preview])
+
+  function sendComment(event: FormEvent) {
+    event.preventDefault()
     if (!comment.trim()) return
     addComment(item.id, comment)
     setComment('')
@@ -50,14 +79,14 @@ export function Drawer({
 
   function split() {
     const titles = parts.split('\n')
-    if (!titles.some((t) => t.trim())) return
+    if (!titles.some((title) => title.trim())) return
     decompose(item.id, titles)
     setParts('')
   }
 
   function connect() {
     const titles = parts.split('\n')
-    if (!titles.some((t) => t.trim())) return
+    if (!titles.some((title) => title.trim())) return
     linkTasks(item.id, titles)
     setParts('')
   }
@@ -68,339 +97,389 @@ export function Drawer({
     updateItem(item.id, { attachments: [...item.attachments, ...next] })
   }
 
-  function removeImage(id: string) {
-    updateItem(item.id, {
-      attachments: item.attachments.filter((a) => a.id !== id),
-    })
+  function setLane(next: Lane) {
+    const sprintId = next === 'todo' || next === 'doing' || next === 'done' ? weekId : null
+    moveItem(item.id, next, sprintId)
   }
-
-  const memberDrop = memberDropBind((id, from) => assignItem(item.id, id, from))
-  const stickerDrop = stickerDropBind((sticker, place, from) =>
-    stickSticker(item.id, sticker, place, from),
-  )
-
-  useEffect(() => {
-    setPreview(null)
-  }, [item.id])
-
-  useEffect(() => {
-    if (!preview) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPreview(null)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [preview])
 
   return (
     <>
-    <div className="drawer-bg" onClick={onClose}>
-      <aside
-        className="drawer"
-        onClick={(e) => e.stopPropagation()}
-        onDragOver={(e) => {
-          stickerDrop.onDragOver(e)
-          memberDrop.onDragOver(e)
-        }}
-        onDrop={async (e) => {
-          stickerDrop.onDrop(e)
-          if (e.defaultPrevented) return
-          memberDrop.onDrop(e)
-          if (e.defaultPrevented) return
-          if (e.dataTransfer.files.length) {
-            e.preventDefault()
-            await addImages(e.dataTransfer.files)
-          }
-        }}
-      >
-        <header>
-          <button type="button" className="ghost" onClick={onClose}>
-            Закрыть
-          </button>
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => {
-              removeItem(item.id)
-              onClose()
-            }}
-          >
-            Удалить
-          </button>
-        </header>
-
-        {item.stickers?.length ? (
-          <div className="drawer-art">
-            <CardStickers item={item} />
-          </div>
-        ) : null}
-
-        <section className="drawer-block">
-          <input
-            className="title"
-            value={item.title}
-            onChange={(e) => updateItem(item.id, { title: e.target.value })}
-          />
-          {parent ? (
-            <p className="hint">
-              Часть:{' '}
-              <button type="button" className="link" onClick={() => onOpen(parent.id)}>
-                {parent.title}
-              </button>
-            </p>
-          ) : null}
-          <textarea
-            rows={5}
-            value={item.body}
-            onChange={(e) => updateItem(item.id, { body: e.target.value })}
-            placeholder="Описание"
-          />
-          {peers.length ? (
-            <div className="related-list drawer-related">
-              {peers.map((peer) => (
-                <button key={peer.id} type="button" className="related-chip" onClick={() => onOpen(peer.id)}>
-                  {peer.title}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {item.attachments.length ? (
-            <div className="thumbs">
-              {item.attachments.map((a) => (
-                <figure key={a.id} className="thumb-item">
-                  <button
-                    type="button"
-                    className="thumb-open"
-                    onClick={() => setPreview(a)}
-                  >
-                    <img src={a.dataUrl} alt={a.name} />
-                  </button>
-                  <button
-                    type="button"
-                    className="thumb-x"
-                    onClick={() => {
-                      if (preview?.id === a.id) setPreview(null)
-                      removeImage(a.id)
-                    }}
-                    aria-label="Удалить картинку"
-                  >
-                    ×
-                  </button>
-                </figure>
-              ))}
-            </div>
-          ) : null}
-          <label className="file ghost">
-            Добавить картинку
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(e) => {
-                if (e.target.files) void addImages(e.target.files)
-                e.target.value = ''
-              }}
-            />
-          </label>
-        </section>
-
-        <section className="drawer-block">
-          <div className="drawer-meta">
-            <div>
-              <span className="field-label">Кто делает</span>
-              <div className="assignee">
-                {state.members.map((m) => (
-                  <Avatar
-                    key={m.id}
-                    member={m}
-                    current={item.assigneeId === m.id}
-                    onPick={() => assignItem(item.id, m.id)}
-                  />
-                ))}
-              </div>
-            </div>
-            <label className="field">
-              <span className="field-label">Колонка</span>
-              <select
-                value={item.lane}
-                onChange={(e) => moveItem(item.id, e.target.value as Lane, item.sprintId)}
-              >
-                <option value="inbox">Входящие</option>
-                <option value="backlog">Бэклог</option>
-                <option value="todo">Спринт</option>
-                <option value="doing">В работе</option>
-                <option value="done">Готово</option>
-                <option value="archive">Архив</option>
-              </select>
-            </label>
-          </div>
-          <div className="row">
-            {item.lane === 'archive' ? (
-              <button type="button" className="primary" onClick={() => moveItem(item.id, 'backlog', null)}>
-                Вернуть в бэклог
-              </button>
-            ) : (
-              <>
-                <button type="button" className="primary" onClick={() => pullToSprint(item.id)}>
-                  В этот спринт
-                </button>
-                <button type="button" className="ghost" onClick={() => carryOver(item.id)}>
-                  В следующую неделю
-                </button>
-              </>
-            )}
-          </div>
-        </section>
-
-        <section className="drawer-block">
-          <h3>Оценка · {scoreOf(item) ?? 'нет балла'}</h3>
-          {state.criteria.map((c) => (
-            <label key={c.id} className="score-row">
-              <span>{c.name}</span>
-              <input
-                type="range"
-                min={0}
-                max={c.max}
-                step={c.step}
-                value={item.scores[c.id] ?? 0}
-                onChange={(e) => setScore(item.id, c.id, Number(e.target.value))}
-              />
-              <b>{item.scores[c.id] ?? '—'}</b>
-            </label>
-          ))}
-        </section>
-
-        <section className="drawer-block">
-          <h3>Связи</h3>
-          <textarea
-            rows={3}
-            value={parts}
-            onChange={(e) => setParts(e.target.value)}
-            placeholder={'Название задачи, по одной в строке'}
-          />
-          <select
-            defaultValue=""
-            onChange={(e) => {
-              const title = e.target.value
-              if (!title) return
-              linkTasks(item.id, [title])
-              e.target.value = ''
-            }}
-          >
-            <option value="">Связать с существующей…</option>
-            {state.items
-              .filter(
-                (it) =>
-                  it.lane !== 'archive' &&
-                  it.id !== item.id &&
-                  !(item.relatedIds ?? []).includes(it.id) &&
-                  it.parentId !== item.id,
-              )
-              .map((it) => (
-                <option key={it.id} value={it.title}>
-                  {it.title}
-                </option>
-              ))}
-          </select>
-          <div className="row">
-            <button type="button" className="ghost" onClick={connect}>
-              Связать
-            </button>
-            <button type="button" className="ghost" onClick={split}>
-              Создать части
-            </button>
-          </div>
-          {peers.length ? (
-            <ul className="parts">
-              {peers.map((peer) => (
-                <li key={peer.id} className="link-row">
-                  <button type="button" className="link" onClick={() => onOpen(peer.id)}>
-                    {peer.title}
-                  </button>
-                  <button type="button" className="ghost" onClick={() => unlinkTask(item.id, peer.id)}>
-                    Убрать
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {children.length ? (
-            <ul className="parts">
-              {children.map((ch) => (
-                <li key={ch.id}>
-                  <button type="button" className="link" onClick={() => onOpen(ch.id)}>
-                    {ch.title}
-                  </button>
-                  <span> · часть · {laneName(ch.lane)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
-
-        <section className="drawer-block">
-          <h3>Комментарии</h3>
-          <ul className="comments">
-            {thread.map((c) => {
-              const who = state.members.find((m) => m.id === c.authorId)
-              return (
-                <li key={c.id}>
-                  <b>{who?.name ?? '—'}</b>
-                  <time>
-                    {new Date(c.createdAt).toLocaleString('ru-RU', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </time>
-                  <p>{c.text}</p>
-                </li>
-              )
-            })}
-          </ul>
-          <form onSubmit={sendComment} className="comment-form">
-            <textarea
-              rows={3}
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Заметка команде"
-            />
-            <button type="submit" className="ghost">
-              Написать
-            </button>
-          </form>
-        </section>
-      </aside>
-    </div>
-    {preview ? (
-      <div className="img-preview" onClick={() => setPreview(null)}>
-        <button
-          type="button"
-          className="thumb-x img-preview-x"
-          onClick={() => setPreview(null)}
-          aria-label="Закрыть превью"
+      <div className="drawer-backdrop" onClick={onClose}>
+        <aside
+          className="drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Задача: ${item.title}`}
+          onClick={(event) => event.stopPropagation()}
+          onDragOver={memberDrop.onDragOver}
+          onDrop={async (event) => {
+            memberDrop.onDrop(event)
+            if (event.defaultPrevented) return
+            if (event.dataTransfer.files.length) {
+              event.preventDefault()
+              await addImages(event.dataTransfer.files)
+            }
+          }}
         >
-          ×
-        </button>
-        <img
-          src={preview.dataUrl}
-          alt={preview.name}
-          onClick={(e) => e.stopPropagation()}
-        />
+          <header className="drawer-head">
+            <div className="drawer-heading">
+              <span className={`lane-badge lane-${item.lane}`}>{laneName(item.lane)}</span>
+              <span className="autosave">Сохраняется автоматически</span>
+            </div>
+            <div className="drawer-head-actions">
+              <div className="menu-wrap">
+                <button type="button" className="icon-button" onClick={() => setMenuOpen((open) => !open)} aria-label="Другие действия">
+                  <Icon name="more" />
+                </button>
+                {menuOpen ? (
+                  <div className="action-menu drawer-menu">
+                    <button
+                      type="button"
+                      className="danger-text"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        setConfirmDelete(true)
+                      }}
+                    >
+                      <Icon name="trash" size={16} />
+                      Удалить задачу…
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              <button type="button" className="icon-button" onClick={onClose} aria-label="Закрыть инспектор">
+                <Icon name="close" />
+              </button>
+            </div>
+          </header>
+
+          <nav className="drawer-tabs" aria-label="Разделы задачи">
+            {tabs.map((entry) => (
+              <button
+                type="button"
+                key={entry.id}
+                className={tab === entry.id ? 'active' : ''}
+                onClick={() => setTab(entry.id)}
+                aria-current={tab === entry.id ? 'page' : undefined}
+              >
+                {entry.label}
+                {entry.id === 'comments' && thread.length ? <span>{thread.length}</span> : null}
+                {entry.id === 'links' && peers.length + children.length ? <span>{peers.length + children.length}</span> : null}
+              </button>
+            ))}
+          </nav>
+
+          <div className="drawer-content">
+            {tab === 'details' ? (
+              <div className="drawer-section">
+                {parent ? (
+                  <button type="button" className="parent-link" onClick={() => onOpen(parent.id)}>
+                    <Icon name="left" size={15} />
+                    Часть задачи «{parent.title}»
+                  </button>
+                ) : null}
+                <textarea
+                  className="drawer-title"
+                  value={item.title}
+                  rows={2}
+                  onChange={(event) => updateItem(item.id, { title: event.target.value })}
+                  aria-label="Название задачи"
+                />
+                <textarea
+                  className="drawer-description"
+                  rows={6}
+                  value={item.body}
+                  onChange={(event) => updateItem(item.id, { body: event.target.value })}
+                  placeholder="Добавьте описание, ссылку или контекст"
+                  aria-label="Описание задачи"
+                />
+
+                <ReactionBar item={item} />
+
+                <div className="detail-grid">
+                  <div className="detail-field">
+                    <span className="field-label">Исполнитель</span>
+                    <div className="assignee-list">
+                      <button
+                        type="button"
+                        className={`avatar-option empty-option${item.assigneeId === null ? ' current' : ''}`}
+                        onClick={() => assignItem(item.id, null)}
+                        aria-label="Без исполнителя"
+                      >
+                        —
+                      </button>
+                      {state.members.map((member) => (
+                        <Avatar
+                          key={member.id}
+                          member={member}
+                          current={item.assigneeId === member.id}
+                          onPick={() => assignItem(item.id, member.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <label className="detail-field">
+                    <span className="field-label">Статус</span>
+                    <select value={item.lane} onChange={(event) => setLane(event.target.value as Lane)}>
+                      <option value="inbox">Входящие</option>
+                      <option value="backlog">Бэклог</option>
+                      <option value="todo">Спринт</option>
+                      <option value="doing">В работе</option>
+                      <option value="done">Готово</option>
+                      <option value="archive">Архив</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="drawer-actions">
+                  {item.lane === 'archive' ? (
+                    <button type="button" className="primary-button" onClick={() => moveItem(item.id, 'backlog', null)}>
+                      Вернуть в бэклог
+                    </button>
+                  ) : (
+                    <>
+                      <button type="button" className="primary-button" onClick={() => pullToSprint(item.id)}>
+                        В этот спринт
+                      </button>
+                      <button type="button" className="secondary-button" onClick={() => carryOver(item.id)}>
+                        На следующую неделю
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <div className="attachment-section">
+                  <div className="section-head">
+                    <h2>Вложения</h2>
+                    <span>{item.attachments.length}</span>
+                  </div>
+                  {item.attachments.length ? (
+                    <div className="thumbs">
+                      {item.attachments.map((attachment) => (
+                        <figure key={attachment.id} className="thumb-item">
+                          <button type="button" className="thumb-open" onClick={() => setPreview(attachment)}>
+                            <img src={attachment.dataUrl} alt={attachment.name} />
+                          </button>
+                          <button
+                            type="button"
+                            className="thumb-remove"
+                            onClick={() => updateItem(item.id, { attachments: item.attachments.filter((entry) => entry.id !== attachment.id) })}
+                            aria-label="Удалить картинку"
+                          >
+                            <Icon name="close" size={14} />
+                          </button>
+                        </figure>
+                      ))}
+                    </div>
+                  ) : null}
+                  <label className="secondary-button file-button">
+                    <Icon name="image" />
+                    Добавить изображение
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(event) => {
+                        if (event.target.files) void addImages(event.target.files)
+                        event.target.value = ''
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
+            {tab === 'score' ? (
+              <div className="drawer-section">
+                <div className="score-summary">
+                  <span className="eyebrow">Итоговая оценка</span>
+                  <strong>{scoreOf(item) ?? '—'}</strong>
+                  <p>Позитивные критерии усредняются, а напряг снижает итоговый балл.</p>
+                </div>
+                <div className="score-list">
+                  {state.criteria.map((criterion) => (
+                    <div key={criterion.id} className="score-control">
+                      <div>
+                        <label htmlFor={`score-${criterion.id}`}>{criterion.name}</label>
+                        <output>{item.scores[criterion.id] ?? 'Не оценено'}</output>
+                      </div>
+                      <input
+                        id={`score-${criterion.id}`}
+                        type="range"
+                        min={0}
+                        max={criterion.max}
+                        step={criterion.step}
+                        value={item.scores[criterion.id] ?? 0}
+                        onChange={(event) => setScore(item.id, criterion.id, Number(event.target.value))}
+                      />
+                      {item.scores[criterion.id] != null ? (
+                        <button type="button" className="text-button" onClick={() => setScore(item.id, criterion.id, null)}>
+                          Сбросить
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {tab === 'links' ? (
+              <div className="drawer-section">
+                <div className="section-copy">
+                  <h2>Связанные задачи</h2>
+                  <p>Свяжите существующую задачу или создайте несколько частей из списка.</p>
+                </div>
+                <select
+                  defaultValue=""
+                  onChange={(event) => {
+                    const title = event.target.value
+                    if (!title) return
+                    linkTasks(item.id, [title])
+                    event.target.value = ''
+                  }}
+                >
+                  <option value="">Выбрать существующую задачу…</option>
+                  {state.items
+                    .filter(
+                      (candidate) =>
+                        candidate.lane !== 'archive' &&
+                        candidate.id !== item.id &&
+                        !(item.relatedIds ?? []).includes(candidate.id) &&
+                        candidate.parentId !== item.id,
+                    )
+                    .map((candidate) => (
+                      <option key={candidate.id} value={candidate.title}>{candidate.title}</option>
+                    ))}
+                </select>
+                <textarea
+                  rows={4}
+                  value={parts}
+                  onChange={(event) => setParts(event.target.value)}
+                  placeholder="Название задачи, по одной в строке"
+                />
+                <div className="drawer-actions">
+                  <button type="button" className="secondary-button" onClick={connect}>Связать задачи</button>
+                  <button type="button" className="primary-button" onClick={split}>Создать части</button>
+                </div>
+
+                {peers.length ? (
+                  <div className="linked-list">
+                    <h3>Связаны</h3>
+                    {peers.map((peer) => (
+                      <div key={peer.id} className="linked-row">
+                        <button type="button" onClick={() => onOpen(peer.id)}>{peer.title}</button>
+                        <button type="button" className="icon-button" onClick={() => unlinkTask(item.id, peer.id)} aria-label="Убрать связь">
+                          <Icon name="close" size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {children.length ? (
+                  <div className="linked-list">
+                    <h3>Части задачи</h3>
+                    {children.map((child) => (
+                      <button type="button" key={child.id} className="linked-row child-row" onClick={() => onOpen(child.id)}>
+                        <span>{child.title}</span>
+                        <span className={`lane-badge lane-${child.lane}`}>{laneName(child.lane)}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {tab === 'comments' ? (
+              <div className="drawer-section comments-section">
+                <div className="section-copy">
+                  <h2>Комментарии</h2>
+                  <p>Короткий рабочий контекст для команды.</p>
+                </div>
+                {thread.length ? (
+                  <ul className="comments">
+                    {thread.map((entry) => {
+                      const author = state.members.find((member) => member.id === entry.authorId)
+                      return (
+                        <li key={entry.id}>
+                          <div>
+                            <strong>{author?.name ?? '—'}</strong>
+                            <time>
+                              {new Date(entry.createdAt).toLocaleString('ru-RU', {
+                                day: 'numeric',
+                                month: 'short',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </time>
+                          </div>
+                          <p>{entry.text}</p>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  <div className="empty-state small">
+                    <h2>Пока без комментариев</h2>
+                    <p>Добавьте контекст для команды.</p>
+                  </div>
+                )}
+                <form onSubmit={sendComment} className="comment-form">
+                  <textarea
+                    rows={3}
+                    value={comment}
+                    onChange={(event) => setComment(event.target.value)}
+                    placeholder="Написать комментарий…"
+                  />
+                  <button type="submit" className="primary-button">Отправить</button>
+                </form>
+              </div>
+            ) : null}
+          </div>
+        </aside>
       </div>
-    ) : null}
+
+      {preview ? (
+        <div className="image-preview" onClick={() => setPreview(null)}>
+          <button type="button" className="icon-button" onClick={() => setPreview(null)} aria-label="Закрыть превью">
+            <Icon name="close" />
+          </button>
+          <img src={preview.dataUrl} alt={preview.name} onClick={(event) => event.stopPropagation()} />
+        </div>
+      ) : null}
+
+      {confirmDelete ? (
+        <div className="confirm-backdrop" onClick={() => setConfirmDelete(false)}>
+          <div className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-task-title" onClick={(event) => event.stopPropagation()}>
+            <span className="confirm-icon danger"><Icon name="trash" /></span>
+            <h2 id="delete-task-title">Удалить задачу?</h2>
+            <p>Задача, её части и комментарии будут удалены без возможности восстановления.</p>
+            <div className="dialog-actions">
+              <button type="button" className="secondary-button" onClick={() => setConfirmDelete(false)}>Отмена</button>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() => {
+                  removeItem(item.id)
+                  onClose()
+                }}
+              >
+                Удалить
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   )
 }
 
 function laneName(lane: Lane) {
   return {
-    inbox: 'входящие',
-    backlog: 'бэклог',
-    todo: 'спринт',
-    doing: 'в работе',
-    done: 'готово',
-    archive: 'архив',
+    inbox: 'Входящие',
+    backlog: 'Бэклог',
+    todo: 'Спринт',
+    doing: 'В работе',
+    done: 'Готово',
+    archive: 'Архив',
   }[lane]
 }

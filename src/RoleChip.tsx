@@ -16,7 +16,7 @@ export function RoleChip({
   return (
     <span
       className={className}
-      title={role?.name}
+      title={role ? `${role.name}: ${role.hint}` : undefined}
       style={
         pose
           ? {

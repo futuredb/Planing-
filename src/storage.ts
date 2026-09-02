@@ -1,4 +1,4 @@
-import { DEFAULT_AVATARS } from './Avatar'
+import { DEFAULT_AVATARS } from './member'
 import type { AppState, Criterion, Item, Member } from './types'
 import { createEmpty, DEFAULT_CRITERIA, isLegacyCriteria, TEAM_MEMBERS } from './seed'
 import { mondayOf } from './dates'
@@ -69,18 +69,39 @@ export async function loadRemoteIfNewer(localUpdatedAt: number): Promise<AppStat
   }
 }
 
-export async function saveState(state: AppState) {
+export type SaveStateResult = {
+  ok: boolean
+  updatedAt: number
+  preservedIds: string[]
+}
+
+export async function saveState(
+  state: AppState,
+  baseUpdatedAt?: number,
+): Promise<SaveStateResult | null> {
   const { currentMemberId, ...board } = state
   const payload = JSON.stringify(board)
   void currentMemberId
   try {
-    await fetch('/api/state', {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (Number.isFinite(baseUpdatedAt)) {
+      headers['X-Funban-Base-Updated-At'] = String(baseUpdatedAt)
+    }
+    const response = await fetch('/api/state', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: payload,
     })
+    if (!response.ok) return null
+    const result = (await response.json()) as Partial<SaveStateResult>
+    return {
+      ok: result.ok === true,
+      updatedAt: Number(result.updatedAt ?? state.updatedAt),
+      preservedIds: Array.isArray(result.preservedIds) ? result.preservedIds : [],
+    }
   } catch {
     /* offline / preview without API */
+    return null
   }
 }
 

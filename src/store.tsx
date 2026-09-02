@@ -1,7 +1,5 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -12,9 +10,10 @@ import { mondayOf, nextMonday, shiftMonday, uid } from './dates'
 import { itemScore, loadRemoteIfNewer, loadState, saveMe, saveState } from './storage'
 import type { AppState, Attachment, Criterion, Item, Lane } from './types'
 import type { StickerId } from './stickers'
-import { rollRoles } from './roles'
+import { defaultRoles, rollRoles } from './roles'
+import { StoreContext } from './store-context'
 
-type Store = {
+export type Store = {
   state: AppState
   weekId: string
   liveWeek: boolean
@@ -48,10 +47,9 @@ type Store = {
     from?: { itemId: string; placedId: string; rot: number; scale: number },
   ) => void
   peelSticker: (itemId: string, placedId: string) => void
+  toggleReaction: (itemId: string, sticker: StickerId) => void
   scoreOf: (item: Item) => number | null
 }
-
-const StoreContext = createContext<Store | null>(null)
 
 function bump(state: AppState): AppState {
   return { ...state, updatedAt: Date.now() }
@@ -61,9 +59,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null)
   const [me, setMe] = useState<string | null>(null)
   const skipSave = useRef(true)
+  const remoteVersion = useRef(0)
 
   useEffect(() => {
     loadState().then((next) => {
+      remoteVersion.current = Number(next.updatedAt) || 0
       setMe(next.currentMemberId)
       setState(next)
     })
@@ -76,7 +76,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return
     }
     const t = setTimeout(() => {
-      void saveState(state)
+      const submittedAt = state.updatedAt
+      void saveState(state, remoteVersion.current).then(async (result) => {
+        if (!result) return
+        if (result.updatedAt) {
+          remoteVersion.current = Math.max(remoteVersion.current, result.updatedAt)
+        }
+        if (!result.preservedIds.length) return
+
+        const remote = await loadRemoteIfNewer(-1)
+        if (!remote) return
+        remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)
+        const protectedIds = new Set(result.preservedIds)
+
+        setState((current) => {
+          if (!current) return current
+          if (current.updatedAt === submittedAt) {
+            skipSave.current = true
+            return remote
+          }
+
+          const remoteById = new Map(remote.items.map((item) => [item.id, item]))
+          const currentIds = new Set(current.items.map((item) => item.id))
+          const replaced = current.items.map((item) =>
+            protectedIds.has(item.id) ? (remoteById.get(item.id) ?? item) : item,
+          )
+          const restored = remote.items.filter(
+            (item) => protectedIds.has(item.id) && !currentIds.has(item.id),
+          )
+          const sprintIds = new Set(current.sprints.map((sprint) => sprint.id))
+          const restoredSprints = remote.sprints.filter(
+            (sprint) => !sprintIds.has(sprint.id) &&
+              [...protectedIds].some(
+                (id) => remoteById.get(id)?.sprintId === sprint.id,
+              ),
+          )
+          return {
+            ...current,
+            items: [...restored, ...replaced],
+            sprints: [...current.sprints, ...restoredSprints],
+          }
+        })
+      })
     }, 250)
     return () => clearTimeout(t)
   }, [state])
@@ -85,6 +126,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const t = setInterval(() => {
       void loadRemoteIfNewer(state?.updatedAt ?? 0).then((remote) => {
         if (!remote) return
+        remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)
         skipSave.current = true
         setMe(remote.currentMemberId)
         setState(remote)
@@ -102,7 +144,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const api = useMemo<Store | null>(() => {
     if (!state || !me) return null
-    const view: AppState = { ...state, currentMemberId: me }
+    const sprintRoles = state.sprints.find((sprint) => sprint.id === weekId)?.roles
+    const rolesForWeek =
+      sprintRoles && Object.keys(sprintRoles).length
+        ? sprintRoles
+        : liveWeek && Object.keys(state.roles ?? {}).length
+          ? state.roles
+          : defaultRoles(weekId, state.members.map((member) => member.id))
+    const view: AppState = { ...state, currentMemberId: me, roles: rolesForWeek }
 
     const withWeek = (prev: AppState, id: string) => {
       if (prev.sprints.some((s) => s.id === id)) return prev
@@ -409,10 +458,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
         }),
       rollWeekRoles: () =>
-        mutate((s) => ({
-          ...s,
-          roles: rollRoles(s.members.map((m) => m.id)),
-        })),
+        mutate((s) => {
+          const roles = rollRoles(s.members.map((member) => member.id))
+          const withCurrentWeek = withWeek(s, weekId)
+          return {
+            ...withCurrentWeek,
+            roles: liveWeek ? roles : withCurrentWeek.roles,
+            sprints: withCurrentWeek.sprints.map((sprint) =>
+              sprint.id === weekId ? { ...sprint, roles } : sprint,
+            ),
+          }
+        }),
       stickSticker: (itemId, sticker, place, from) =>
         mutate((s) => ({
           ...s,
@@ -447,6 +503,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               : it,
           ),
         })),
+      toggleReaction: (itemId, sticker) =>
+        mutate((s) => ({
+          ...s,
+          items: s.items.map((it) => {
+            if (it.id !== itemId) return it
+            const existing = (it.stickers ?? []).find(
+              (placed) => placed.sticker === sticker && placed.by === me,
+            )
+            return {
+              ...it,
+              stickers: existing
+                ? it.stickers.filter((placed) => placed.id !== existing.id)
+                : [
+                    ...(it.stickers ?? []),
+                    { id: uid(), sticker, by: me, x: 50, y: 50, rot: 0, scale: 1 },
+                  ],
+            }
+          }),
+        })),
       scoreOf: (item) => itemScore(item, view.criteria),
     }
   }, [mutate, state, me, weekId, liveWeek])
@@ -456,10 +531,4 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>
-}
-
-export function useStore() {
-  const ctx = useContext(StoreContext)
-  if (!ctx) throw new Error('Store missing')
-  return ctx
 }

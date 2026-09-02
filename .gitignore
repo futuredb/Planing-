@@ -13,6 +13,9 @@ dist-ssr
 *.local
 data/state.json
 data/*.tmp
+data/*.mcp.json
+data/*.audit.jsonl
+output/playwright
 
 # Editor directories and files
 .vscode/*

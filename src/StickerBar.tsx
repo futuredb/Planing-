@@ -1,79 +1,94 @@
-import {
-  STICKERS,
-  startPlacedStickerDrag,
-  startStickerDrag,
-  stickerById,
-  readPlacedSticker,
-} from './stickers'
-import { endDetach, markDropConsumed } from './detach'
-import { useStore } from './store'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { STICKERS, stickerById, type StickerId } from './stickers'
+import { useStore } from './store-context'
 import type { Item } from './types'
+import { Icon } from './ui/Icon'
 
-export function StickerRail() {
-  const { peelSticker } = useStore()
+export function ReactionBar({ item, compact = false }: { item: Item; compact?: boolean }) {
+  const { state, toggleReaction } = useStore()
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const groups = useMemo(() => {
+    const result = new Map<StickerId, { count: number; mine: boolean }>()
+    for (const placed of item.stickers ?? []) {
+      const current = result.get(placed.sticker) ?? { count: 0, mine: false }
+      result.set(placed.sticker, {
+        count: current.count + 1,
+        mine: current.mine || placed.by === state.currentMemberId,
+      })
+    }
+    return STICKERS.filter((sticker) => result.has(sticker.id)).map((sticker) => ({
+      ...sticker,
+      ...result.get(sticker.id)!,
+    }))
+  }, [item.stickers, state.currentMemberId])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointer = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointer)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onPointer)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
 
   return (
-    <aside
-      className="sticker-rail"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        const placed = readPlacedSticker(e)
-        if (!placed) return
-        e.preventDefault()
-        markDropConsumed()
-        peelSticker(placed.fromItem, placed.placedId)
-      }}
-    >
-      {STICKERS.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          className="rail-sticker"
-          aria-label={s.label}
-          draggable
-          onDragStart={(e) => startStickerDrag(e, s.id)}
-        >
-          <img src={s.src} alt="" />
-        </button>
-      ))}
-    </aside>
-  )
-}
-
-export function CardStickers({ item }: { item: Item }) {
-  const { peelSticker, assignItem } = useStore()
-  return (
-    <div className="stuck-layer">
-      {(item.stickers ?? []).map((placed) => {
-        const s = stickerById(placed.sticker)
-        return (
+    <div className={`reaction-wrap${compact ? ' compact' : ''}`} ref={root}>
+      <div className="reaction-list">
+        {groups.map((group) => (
           <button
-            key={placed.id}
+            key={group.id}
             type="button"
-            className="stuck"
-            title={`${s.label} · стяните, чтобы снять`}
-            draggable
-            style={{
-              left: `${placed.x}%`,
-              top: `${placed.y}%`,
-              transform: `rotate(${placed.rot}deg) scale(${placed.scale})`,
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            onDragStart={(e) => {
-              e.stopPropagation()
-              startPlacedStickerDrag(e, placed, item.id)
-            }}
-            onDragEnd={() =>
-              endDetach({
-                peelSticker,
-                unassign: (id) => assignItem(id, null),
-              })
-            }
+            className={`reaction-chip${group.mine ? ' mine' : ''}`}
+            onClick={() => toggleReaction(item.id, group.id)}
+            title={`${group.label}: ${group.count}`}
+            aria-label={`${group.label}, реакций: ${group.count}`}
           >
-            <img src={s.src} alt={s.label} draggable={false} />
+            <img src={group.src} alt="" />
+            {group.count > 1 ? <span>{group.count}</span> : null}
           </button>
-        )
-      })}
+        ))}
+        <button
+          type="button"
+          className="reaction-add"
+          onClick={() => setOpen((value) => !value)}
+          aria-label="Добавить реакцию"
+          aria-expanded={open}
+        >
+          <Icon name="reaction" size={compact ? 15 : 17} />
+        </button>
+      </div>
+      {open ? (
+        <div className="reaction-popover" role="menu" aria-label="Выберите реакцию">
+          {STICKERS.map((sticker) => {
+            const mine = item.stickers?.some(
+              (placed) => placed.sticker === sticker.id && placed.by === state.currentMemberId,
+            )
+            return (
+              <button
+                key={sticker.id}
+                type="button"
+                className={mine ? 'selected' : ''}
+                onClick={() => {
+                  toggleReaction(item.id, sticker.id)
+                  setOpen(false)
+                }}
+                title={sticker.label}
+                role="menuitem"
+              >
+                <img src={stickerById(sticker.id).src} alt={sticker.label} />
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
     </div>
   )
 }

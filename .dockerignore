@@ -3,6 +3,7 @@ dist
 data
 .git
 .github
+private
 *.local
 .DS_Store
 .vercel

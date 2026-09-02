@@ -47,6 +47,22 @@ function fixture() {
         createdAt: 900,
         archivedAt: null,
       },
+      {
+        id: 'existing-agent',
+        title: 'Реализовать создание задач через Е-агентов',
+        body: 'Научить Codex и Claude создавать задачи в Funban и расставлять между ними связи.',
+        lane: 'backlog',
+        sprintId: null,
+        parentId: null,
+        relatedIds: [],
+        assigneeId: 'm1',
+        authorId: 'm1',
+        scores: {},
+        attachments: [],
+        stickers: [],
+        createdAt: 850,
+        archivedAt: null,
+      },
     ],
     comments: [],
   }
@@ -143,6 +159,33 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
   const context = jsonResult(await client.callTool({ name: 'get_context', arguments: {} }))
   assert.deepEqual(context.members.map((member) => member.name), ['Лиля', 'Ваня'])
   assert.match(context.defaultAssigneeRule, /текущего чата/i)
+  assert.match(context.relationRule, /отдельно|явно/i)
+
+  const relationCandidates = jsonResult(
+    await client.callTool({
+      name: 'search_tasks',
+      arguments: { query: 'Создавать задачи через Е-агентов из чата', limit: 10 },
+    }),
+  )
+  assert.equal(relationCandidates[0].id, 'existing-agent')
+  assert.ok(relationCandidates[0].match.matchedTerms.includes('создавать'))
+  assert.ok(relationCandidates[0].match.matchedTerms.includes('агентов'))
+
+  const rejectedMissingAnalysis = await client.callTool({
+    name: 'create_task',
+    arguments: {
+      requestId: 'chat-request-rejected-001',
+      title: 'Тестовая задача из другого чата',
+      description: 'Проверяем обязательный анализ связей.',
+      lane: 'backlog',
+      assigneeName: 'Лиля',
+      relatedTaskIds: [],
+      relationSearchQueries: ['задачи через Е-агентов'],
+      relationDecision: 'Связь не была указана в запросе пользователя.',
+    },
+  })
+  assert.equal(rejectedMissingAnalysis.isError, true)
+  assert.match(jsonResult(rejectedMissingAnalysis).error, /не является причиной/i)
 
   const request = {
     requestId: 'chat-request-001',
@@ -151,7 +194,10 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
     lane: 'todo',
     sprint: 'next',
     assigneeName: 'Лиля',
-    relatedTaskIds: [],
+    relatedTaskIds: ['existing-agent'],
+    relationSearchQueries: ['создание задач через Е-агентов', 'автоматизация онбординга'],
+    relationDecision:
+      'Связываю с инициативой про Е-агентов: новая задача проверяет этот способ постановки на сценарии онбординга.',
     scores: { impact: 4 },
   }
   const first = jsonResult(
@@ -159,6 +205,8 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
   )
   assert.equal(first.task.assignee.name, 'Лиля')
   assert.equal(first.task.createdVia, 'agent')
+  assert.deepEqual(first.task.relatedTaskIds, ['existing-agent'])
+  assert.deepEqual(first.relationAnalysis.queries, request.relationSearchQueries)
   assert.equal(first.deduplicated, false)
 
   const repeated = jsonResult(
@@ -214,6 +262,9 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
   assert.ok(storedAfterMcp.items[0].relatedIds.includes('existing-1'))
   assert.ok(
     storedAfterMcp.items.find((item) => item.id === 'existing-1').relatedIds.includes(first.task.id),
+  )
+  assert.ok(
+    storedAfterMcp.items.find((item) => item.id === 'existing-agent').relatedIds.includes(first.task.id),
   )
 
   const staleSave = await fetch(`${rootUrl}api/state`, {

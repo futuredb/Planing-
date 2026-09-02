@@ -5,14 +5,61 @@ import * as z from 'zod/v4'
 const ACTIVE_LANES = ['inbox', 'backlog', 'todo', 'doing', 'done']
 const ALL_LANES = [...ACTIVE_LANES, 'archive']
 const SPRINT_LANES = new Set(['todo', 'doing', 'done'])
+const SEARCH_STOP_WORDS = new Set([
+  'а', 'без', 'в', 'для', 'до', 'задача', 'задачи', 'задачу', 'и', 'из', 'или', 'к', 'как',
+  'на', 'над', 'не', 'новая', 'нового', 'новое', 'новой', 'новую', 'о', 'по', 'про', 'с',
+  'со', 'то', 'у', 'что', 'это', 'the', 'a', 'an', 'and', 'for', 'from', 'in', 'of', 'on',
+  'or', 'task', 'to', 'with',
+])
 
-const INSTRUCTIONS = `Перед первой записью в каждом чате выясни у пользователя имя исполнителя по умолчанию и сохрани его в контексте разговора. При создании задачи всегда передавай assigneeName: явное имя из запроса имеет приоритет, иначе используй имя по умолчанию. Общий токен не является личностью пользователя. Перед созданием ищи дубли через search_tasks. Связи ставь только по найденным точным id. Без отдельного подтверждения не удаляй задачи, не закрывай спринт и не меняй роли.`
+const INSTRUCTIONS = `Перед первой записью в каждом чате выясни у пользователя имя исполнителя по умолчанию и сохрани его в контексте разговора. При создании задачи всегда передавай assigneeName: явное имя из запроса имеет приоритет, иначе используй имя по умолчанию. Общий токен не является личностью пользователя. Перед КАЖДЫМ create_task обязательно вызови search_tasks: ищи не только дубли, но и родительские инициативы, задачи про тот же продукт или проблему и возможные зависимости. Пользователь не обязан отдельно просить о связях. Сравни заголовки и описания найденных задач, передай осмысленно связанные точные id в relatedTaskIds и кратко объясни решение в relationDecision. Пустой relatedTaskIds допустим только когда после поиска действительно нет содержательно связанной задачи; отсутствие явной просьбы о связи не является причиной оставить его пустым. Без отдельного подтверждения не удаляй задачи, не закрывай спринт и не меняй роли.`
 
 function normalize(value) {
   return String(value ?? '')
     .trim()
     .toLocaleLowerCase('ru-RU')
     .replaceAll('ё', 'е')
+}
+
+function searchTokens(value) {
+  return normalize(value)
+    .replace(/[^a-zа-я0-9]+/giu, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !SEARCH_STOP_WORDS.has(token))
+}
+
+function tokenMatch(left, right) {
+  if (left === right) return 1
+  if (left.length < 4 || right.length < 4) return 0
+  const shortest = Math.min(left.length, right.length)
+  let prefix = 0
+  while (prefix < shortest && left[prefix] === right[prefix]) prefix += 1
+  return prefix >= 4 && prefix / shortest >= 0.65 ? 0.72 : 0
+}
+
+function searchRelevance(item, query) {
+  const queryTokens = [...new Set(searchTokens(query))]
+  if (!queryTokens.length) return { score: 0, matchedTerms: [] }
+
+  const titleTokens = searchTokens(item.title)
+  const bodyTokens = searchTokens(item.body)
+  const matchedTerms = []
+  let score = 0
+
+  for (const queryToken of queryTokens) {
+    const titleMatch = Math.max(0, ...titleTokens.map((token) => tokenMatch(queryToken, token)))
+    const bodyMatch = Math.max(0, ...bodyTokens.map((token) => tokenMatch(queryToken, token)))
+    if (!titleMatch && !bodyMatch) continue
+    matchedTerms.push(queryToken)
+    score += titleMatch * 4 + bodyMatch * 1.5
+  }
+
+  const normalizedQuery = normalize(query)
+  const searchable = normalize(`${item.title} ${item.body}`)
+  if (normalizedQuery.length > 3 && searchable.includes(normalizedQuery)) score += 8
+  score += matchedTerms.length > 1 ? matchedTerms.length * 0.75 : 0
+
+  return { score: Math.round(score * 100) / 100, matchedTerms }
 }
 
 function mondayInTimeZone(timeZone, offsetWeeks = 0) {
@@ -171,6 +218,8 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
             },
             defaultAssigneeRule:
               'Возьми имя по умолчанию из текущего чата. Явно указанный в задаче участник имеет приоритет.',
+            relationRule:
+              'Перед каждой новой задачей ищи дубли, родительские инициативы и смысловые зависимости. Связи добавляй по найденным id, даже если пользователь не попросил об этом явно.',
           }
         }),
       )
@@ -180,7 +229,7 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
         {
           title: 'Поиск задач Funban',
           description:
-            'Найти существующие задачи перед созданием новой или установкой связей. Возвращает точные id.',
+            'Обязательный шаг перед create_task: найти дубли, родительские инициативы и смысловые зависимости. Поиск ранжирует совпадения по ключевым словам и возвращает точные id с причиной совпадения; если результатов мало, повтори с другим ключевым понятием.',
           inputSchema: z.object({
             query: z.string().max(300).default('').describe('Слова из заголовка или описания'),
             lane: z.enum(ALL_LANES).optional().describe('Ограничить поиск одной колонкой'),
@@ -194,10 +243,14 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
           const needle = normalize(query)
           return state.items
             .filter((item) => !lane || item.lane === lane)
-            .filter((item) => !needle || normalize(`${item.title} ${item.body}`).includes(needle))
-            .sort((left, right) => right.createdAt - left.createdAt)
+            .map((item) => ({ item, ...searchRelevance(item, query) }))
+            .filter(({ score }) => !needle || score > 0)
+            .sort((left, right) => right.score - left.score || right.item.createdAt - left.item.createdAt)
             .slice(0, limit)
-            .map((item) => taskView(state, item, publicUrl))
+            .map(({ item, score, matchedTerms }) => ({
+              ...taskView(state, item, publicUrl),
+              match: needle ? { score, matchedTerms } : null,
+            }))
         }),
       )
 
@@ -206,7 +259,7 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
         {
           title: 'Создать задачу в Funban',
           description:
-            'Создать одну задачу после проверки дублей. assigneeName всегда передавай явно: участник из запроса или имя по умолчанию из чата.',
+            'Создать задачу после обязательного смыслового поиска через search_tasks. Не жди просьбы пользователя о связях: сам найди релевантные задачи, передай их id и опиши решение. assigneeName всегда передавай явно.',
           inputSchema: z.object({
             requestId: z
               .string()
@@ -225,7 +278,21 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
               .nullable()
               .describe('Явный исполнитель или исполнитель по умолчанию из текущего чата; null — без исполнителя'),
             parentId: z.string().nullable().default(null),
-            relatedTaskIds: z.array(z.string()).max(20).default([]),
+            relatedTaskIds: z
+              .array(z.string())
+              .max(20)
+              .describe('Точные id осмысленно связанных задач из результатов search_tasks; [] только если подходящих задач нет'),
+            relationSearchQueries: z
+              .array(z.string().trim().min(2).max(300))
+              .min(1)
+              .max(5)
+              .describe('Запросы, которые реально были выполнены через search_tasks перед созданием'),
+            relationDecision: z
+              .string()
+              .trim()
+              .min(10)
+              .max(1200)
+              .describe('Почему выбраны эти связи или почему после поиска связей действительно не найдено'),
             scores: z.record(z.string(), z.number()).optional(),
           }),
           annotations: { destructiveHint: false, idempotentHint: true },
@@ -238,6 +305,15 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
               const parent = input.parentId ? validateTaskId(state, input.parentId, 'Родительская задача') : null
               const id = randomUUID()
               const relatedIds = validateRelations(state, id, input.relatedTaskIds)
+              const relationDecision = normalize(input.relationDecision)
+              if (
+                !relatedIds.length &&
+                /(связ.{0,35}не (?:был[аио]? )?указан|не просил.{0,20}связ|не было.{0,20}запрос.{0,20}связ)/u.test(relationDecision)
+              ) {
+                throw new Error(
+                  'Отсутствие явной просьбы пользователя не является причиной не ставить связи. Выполни search_tasks, проанализируй найденные задачи и повтори create_task.',
+                )
+              }
               const now = Date.now()
               const item = {
                 id,
@@ -264,7 +340,13 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
               return {
                 state,
                 touchedIds: [id, ...relatedIds],
-                result: { task: taskView(state, item, publicUrl) },
+                result: {
+                  task: taskView(state, item, publicUrl),
+                  relationAnalysis: {
+                    queries: input.relationSearchQueries,
+                    decision: input.relationDecision,
+                  },
+                },
               }
             },
           ),

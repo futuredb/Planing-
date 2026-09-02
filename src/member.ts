@@ -25,13 +25,13 @@ export function startMemberDrag(event: DragEvent, memberId: string, fromItemId?:
     beginDetach({ kind: 'member', itemId: fromItemId })
   }
   event.dataTransfer.effectAllowed = 'copyMove'
-  document.documentElement.classList.add('member-drag-active')
+  document.documentElement.classList.add('item-drag-active')
 }
 
 export function endMemberDrag() {
-  document.documentElement.classList.remove('member-drag-active')
-  document.querySelectorAll('.member-drop-over').forEach((element) => {
-    element.classList.remove('member-drop-over')
+  document.documentElement.classList.remove('item-drag-active')
+  document.querySelectorAll('.item-drop-over').forEach((element) => {
+    element.classList.remove('item-drop-over')
   })
 }
 
@@ -51,15 +51,13 @@ export function memberDropBind(
   onAssign: (memberId: string, fromItemId?: string | null) => void,
 ) {
   function isMemberDrag(event: DragEvent) {
-    return Array.from(event.dataTransfer.types).some(
-      (type) => type === MEMBER_MIME || type === 'text/plain',
-    )
+    return Array.from(event.dataTransfer.types).includes(MEMBER_MIME)
   }
 
   return {
     onDragEnter: (event: DragEvent) => {
       if (!isMemberDrag(event)) return
-      event.currentTarget.classList.add('member-drop-over')
+      event.currentTarget.classList.add('item-drop-over')
     },
     onDragOver: (event: DragEvent) => {
       if (!isMemberDrag(event)) return
@@ -69,14 +67,14 @@ export function memberDropBind(
     onDragLeave: (event: DragEvent) => {
       const next = event.relatedTarget
       if (next instanceof Node && event.currentTarget.contains(next)) return
-      event.currentTarget.classList.remove('member-drop-over')
+      event.currentTarget.classList.remove('item-drop-over')
     },
     onDrop: (event: DragEvent) => {
       const memberId = readMemberDrop(event)
       if (!memberId) return
       event.preventDefault()
       event.stopPropagation()
-      event.currentTarget.classList.remove('member-drop-over')
+      event.currentTarget.classList.remove('item-drop-over')
       markDropConsumed()
       onAssign(memberId, readMemberFromItem(event) || null)
     },

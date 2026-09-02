@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AssignedFace } from '../AssignedFace'
-import { memberDropBind } from '../member'
+import { cardDropBind } from '../card-drop'
 import { ReactionBar } from '../StickerBar'
 import { useStore } from '../store-context'
 import type { Criterion } from '../types'
@@ -88,6 +88,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
     scoreOf,
     assignItem,
     setScore,
+    toggleReaction,
   } = useStore()
   const [settings, setSettings] = useState(false)
   const rows = state.items
@@ -137,15 +138,23 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
               <tbody>
                 {rows.map((item) => {
                   const owner = state.members.find((member) => member.id === item.assigneeId)
-                  const memberDrop = memberDropBind((id, from) => assignItem(item.id, id, from))
+                  const cardDrop = cardDropBind(
+                    (id, from) => assignItem(item.id, id, from),
+                    (sticker) => {
+                      const mine = item.stickers.some(
+                        (placed) => placed.sticker === sticker && placed.by === state.currentMemberId,
+                      )
+                      if (!mine) toggleReaction(item.id, sticker)
+                    },
+                  )
                   return (
                     <tr
                       key={item.id}
-                      className="member-drop-zone"
-                      onDragEnter={memberDrop.onDragEnter}
-                      onDragOver={memberDrop.onDragOver}
-                      onDragLeave={memberDrop.onDragLeave}
-                      onDrop={memberDrop.onDrop}
+                      className="item-drop-zone"
+                      onDragEnter={cardDrop.onDragEnter}
+                      onDragOver={cardDrop.onDragOver}
+                      onDragLeave={cardDrop.onDragLeave}
+                      onDrop={cardDrop.onDrop}
                     >
                       <td>
                         <div className="backlog-task">
@@ -191,15 +200,23 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
           <ul className="backlog-mobile">
             {rows.map((item) => {
               const owner = state.members.find((member) => member.id === item.assigneeId)
-              const memberDrop = memberDropBind((id, from) => assignItem(item.id, id, from))
+              const cardDrop = cardDropBind(
+                (id, from) => assignItem(item.id, id, from),
+                (sticker) => {
+                  const mine = item.stickers.some(
+                    (placed) => placed.sticker === sticker && placed.by === state.currentMemberId,
+                  )
+                  if (!mine) toggleReaction(item.id, sticker)
+                },
+              )
               return (
                 <li
                   key={item.id}
-                  className="member-drop-zone"
-                  onDragEnter={memberDrop.onDragEnter}
-                  onDragOver={memberDrop.onDragOver}
-                  onDragLeave={memberDrop.onDragLeave}
-                  onDrop={memberDrop.onDrop}
+                  className="item-drop-zone"
+                  onDragEnter={cardDrop.onDragEnter}
+                  onDragOver={cardDrop.onDragOver}
+                  onDragLeave={cardDrop.onDragLeave}
+                  onDrop={cardDrop.onDrop}
                 >
                   <div className="mobile-task-head">
                     <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>

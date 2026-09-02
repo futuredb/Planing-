@@ -1,8 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { STICKERS, stickerById, type StickerId } from './stickers'
+import {
+  endStickerDrag,
+  STICKERS,
+  startStickerDrag,
+  stickerById,
+  type StickerId,
+} from './stickers'
 import { useStore } from './store-context'
 import type { Item } from './types'
 import { Icon } from './ui/Icon'
+
+export function ReactionSources() {
+  return (
+    <div className="reaction-source-list" aria-label="Реакции для перетаскивания">
+      {STICKERS.map((sticker) => (
+        <span
+          key={sticker.id}
+          className="reaction-drag-source"
+          draggable
+          role="img"
+          aria-label={`Перетащить реакцию «${sticker.label}» на карточку`}
+          title={`Перетащить «${sticker.label}» на карточку`}
+          onDragStart={(event) => startStickerDrag(event, sticker.id)}
+          onDragEnd={endStickerDrag}
+        >
+          <img src={sticker.src} alt="" draggable={false} />
+        </span>
+      ))}
+    </div>
+  )
+}
 
 export function ReactionBar({ item, compact = false }: { item: Item; compact?: boolean }) {
   const { state, toggleReaction } = useStore()

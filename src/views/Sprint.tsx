@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { AssignedFace } from '../AssignedFace'
-import { memberDropBind } from '../member'
+import { cardDropBind } from '../card-drop'
 import { ReactionBar } from '../StickerBar'
 import { useStore } from '../store-context'
 import type { Item, Lane } from '../types'
@@ -172,14 +172,22 @@ function SprintCard({
   lane: Lane
   onOpen: (id: string) => void
 }) {
-  const { state, assignItem, moveItem, weekId, carryOver } = useStore()
+  const { state, assignItem, moveItem, weekId, carryOver, toggleReaction } = useStore()
   const [menuOpen, setMenuOpen] = useState(false)
   const owner = state.members.find((member) => member.id === item.assigneeId)
-  const memberDrop = memberDropBind((memberId, from) => assignItem(item.id, memberId, from))
+  const cardDrop = cardDropBind(
+    (memberId, from) => assignItem(item.id, memberId, from),
+    (sticker) => {
+      const mine = item.stickers.some(
+        (placed) => placed.sticker === sticker && placed.by === state.currentMemberId,
+      )
+      if (!mine) toggleReaction(item.id, sticker)
+    },
+  )
 
   return (
     <article
-      className="task-card member-drop-zone"
+      className="task-card item-drop-zone"
       draggable
       onDragStart={(event) => {
         if ((event.target as HTMLElement).closest('button, input, textarea, select')) {
@@ -189,10 +197,10 @@ function SprintCard({
         event.dataTransfer.setData('text/id', item.id)
         event.dataTransfer.effectAllowed = 'move'
       }}
-      onDragEnter={memberDrop.onDragEnter}
-      onDragOver={memberDrop.onDragOver}
-      onDragLeave={memberDrop.onDragLeave}
-      onDrop={memberDrop.onDrop}
+      onDragEnter={cardDrop.onDragEnter}
+      onDragOver={cardDrop.onDragOver}
+      onDragLeave={cardDrop.onDragLeave}
+      onDrop={cardDrop.onDrop}
     >
       <div className="task-card-top">
         <button type="button" className="task-title" onClick={() => onOpen(item.id)}>

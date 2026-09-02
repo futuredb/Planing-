@@ -1,6 +1,7 @@
 import { useCallback, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react'
 import { AssignedFace } from '../AssignedFace'
-import { memberDropBind, readMemberDrop } from '../member'
+import { cardDropBind } from '../card-drop'
+import { readMemberDrop } from '../member'
 import { RoleChip } from '../RoleChip'
 import { ReactionBar } from '../StickerBar'
 import { filesToAttachments } from '../storage'
@@ -9,7 +10,7 @@ import type { Attachment } from '../types'
 import { Icon } from '../ui/Icon'
 
 export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
-  const { state, addIdea, pullToSprint, moveItem, assignItem } = useStore()
+  const { state, addIdea, pullToSprint, moveItem, assignItem, toggleReaction } = useStore()
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [files, setFiles] = useState<Attachment[]>([])
@@ -135,15 +136,23 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
           {ideas.map((item) => {
             const owner = state.members.find((member) => member.id === item.assigneeId)
             const author = state.members.find((member) => member.id === item.authorId)
-            const memberDrop = memberDropBind((id, from) => assignItem(item.id, id, from))
+            const cardDrop = cardDropBind(
+              (id, from) => assignItem(item.id, id, from),
+              (sticker) => {
+                const mine = item.stickers.some(
+                  (placed) => placed.sticker === sticker && placed.by === state.currentMemberId,
+                )
+                if (!mine) toggleReaction(item.id, sticker)
+              },
+            )
             return (
               <li
                 key={item.id}
-                className="member-drop-zone"
-                onDragEnter={memberDrop.onDragEnter}
-                onDragOver={memberDrop.onDragOver}
-                onDragLeave={memberDrop.onDragLeave}
-                onDrop={memberDrop.onDrop}
+                className="item-drop-zone"
+                onDragEnter={cardDrop.onDragEnter}
+                onDragOver={cardDrop.onDragOver}
+                onDragLeave={cardDrop.onDragLeave}
+                onDrop={cardDrop.onDrop}
               >
                 <div className="inbox-item-main">
                   <button type="button" className="inbox-title" onClick={() => onOpen(item.id)}>

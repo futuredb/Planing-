@@ -94,6 +94,12 @@ test('роли видны в шапке, а аватар назначает ис
   await expect(roleChips).toHaveCount(5)
   await expect(roleChips.first()).toBeVisible()
   expect((await roleChips.allTextContents()).every((role) => role.trim().length > 0)).toBeTruthy()
+  await expect(page.getByRole('dialog', { name: 'Роли этой недели' })).toHaveCount(0)
+
+  await rolesDock.getByRole('button', { name: 'Перемешать роли…', exact: true }).click()
+  const confirmation = page.getByRole('alertdialog', { name: 'Перемешать роли?' })
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('button', { name: 'Оставить как есть' }).click()
 
   const source = rolesDock.getByRole('button', {
     name: 'Перетащить Лиля на карточку',
@@ -107,6 +113,21 @@ test('роли видны в шапке, а аватар назначает ис
   await page.reload()
   const savedCard = page.locator('.task-card').filter({ hasText: 'Автозаполнение реквизитов' })
   await expect(savedCard.locator('.owner-chip')).toContainText('Лиля')
+})
+
+test('реакция из шапки добавляется на карточку перетаскиванием', async ({ page }) => {
+  const source = page
+    .getByLabel('Реакции для перетаскивания')
+    .getByRole('img', { name: 'Перетащить реакцию «звезда» на карточку' })
+  const card = page.locator('.task-card').filter({ hasText: 'Автозаполнение реквизитов' })
+
+  await source.dragTo(card)
+  await expect(card.getByLabel(/звезда, реакций:/)).toBeVisible()
+
+  await page.waitForTimeout(400)
+  await page.reload()
+  const savedCard = page.locator('.task-card').filter({ hasText: 'Автозаполнение реквизитов' })
+  await expect(savedCard.getByLabel(/звезда, реакций:/)).toBeVisible()
 })
 
 test('инспектор редактирует оценку и закрывается по Escape', async ({ page }) => {
@@ -145,7 +166,7 @@ test('роли меняются только после подтверждени
   })
   expect(columnsAreCentered).toBeTruthy()
 
-  await page.getByRole('button', { name: 'Перемешать роли…', exact: true }).click()
+  await page.locator('main').getByRole('button', { name: 'Перемешать роли…', exact: true }).click()
   const confirmation = page.getByRole('alertdialog', { name: 'Перемешать роли?' })
   await expect(confirmation).toBeVisible()
   await confirmation.getByRole('button', { name: 'Оставить как есть' }).click()
@@ -154,7 +175,7 @@ test('роли меняются только после подтверждени
   let saved = await page.request.get('/api/state').then((response) => response.json())
   expect(saved.sprints.some((sprint: { roles?: Record<string, string> }) => sprint.roles)).toBeFalsy()
 
-  await page.getByRole('button', { name: 'Перемешать роли…', exact: true }).click()
+  await page.locator('main').getByRole('button', { name: 'Перемешать роли…', exact: true }).click()
   await confirmation.getByRole('button', { name: 'Перемешать', exact: true }).click()
   await page.waitForTimeout(400)
 

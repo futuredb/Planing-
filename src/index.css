@@ -302,6 +302,7 @@ select:focus {
 .week-copy > span {
   color: var(--muted);
   font-size: 14px;
+  white-space: nowrap;
 }
 
 .icon-button {
@@ -354,32 +355,33 @@ select:focus {
   text-decoration: underline;
 }
 
-.roles-wrap,
 .menu-wrap {
   position: relative;
 }
 
+.header-tools,
 .roles-wrap {
-  min-width: 0;
-  max-width: min(760px, calc(100vw - var(--sidebar) - 300px));
-}
-
-.roles-dock {
   display: flex;
   min-width: 0;
-  min-height: 58px;
   align-items: center;
-  gap: 5px;
-  padding: 3px 4px 3px 6px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--ink);
 }
 
-.roles-dock:hover {
-  border-color: var(--line-strong);
-  background: var(--surface);
+.header-tools {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.header-tool-divider {
+  width: 1px;
+  height: 28px;
+  flex: 0 0 1px;
+  background: var(--line);
+}
+
+.roles-wrap {
+  flex: 0 1 auto;
+  gap: 4px;
 }
 
 .role-source-list {
@@ -399,9 +401,9 @@ select:focus {
 .role-drag-source {
   position: relative;
   display: grid;
-  width: 68px;
+  width: 60px;
   height: 50px;
-  flex: 0 0 68px;
+  flex: 0 0 60px;
   place-items: start center;
   padding-top: 1px;
   border-radius: 10px;
@@ -438,7 +440,7 @@ select:focus {
   bottom: 0;
   left: 50%;
   min-height: 19px;
-  max-width: 68px;
+  max-width: 60px;
   padding: 0 6px;
   overflow: hidden;
   border-color: var(--surface);
@@ -448,90 +450,66 @@ select:focus {
   transform: translateX(-50%);
 }
 
-.roles-menu-button {
+.roles-shuffle-button {
   flex-shrink: 0;
+  color: var(--muted-strong);
 }
 
-.crew-popover,
+.reaction-source-list {
+  display: flex;
+  min-width: 78px;
+  max-width: 260px;
+  flex: 0 1 260px;
+  align-items: center;
+  gap: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.reaction-source-list::-webkit-scrollbar {
+  display: none;
+}
+
+.reaction-drag-source {
+  display: grid;
+  width: 26px;
+  height: 40px;
+  flex: 0 0 26px;
+  place-items: center;
+  border-radius: 9px;
+  cursor: grab;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.reaction-drag-source:hover {
+  background: var(--surface-strong);
+  transform: translateY(-1px) scale(1.04);
+}
+
+.reaction-drag-source:active {
+  cursor: grabbing;
+  transform: scale(0.94);
+}
+
+.reaction-drag-source img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
 .reaction-popover,
 .action-menu,
 .mobile-more {
   box-shadow: var(--shadow-popover);
 }
 
-.crew-popover {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  width: min(360px, calc(100vw - 32px));
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface);
-  animation: pop-in 150ms ease-out both;
-}
-
-.popover-head,
 .panel-head,
 .drawer-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-}
-
-.popover-head > div {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.popover-head strong {
-  font-size: 15px;
-}
-
-.popover-head span {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.crew-list {
-  display: grid;
-  gap: 3px;
-  margin: 12px 0;
-}
-
-.crew-option {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  min-height: 54px;
-  align-items: center;
-  gap: 10px;
-  padding: 5px 8px;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--ink);
-  text-align: left;
-}
-
-.crew-option:hover {
-  background: var(--surface-subtle);
-}
-
-.crew-option > span {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.crew-option strong {
-  overflow: hidden;
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .app-main {
@@ -873,23 +851,23 @@ select:focus {
   cursor: grabbing;
 }
 
-.member-drag-active .member-drop-zone {
+.item-drag-active .item-drop-zone {
   cursor: copy;
 }
 
-.member-drag-active .task-card.member-drop-zone {
+.item-drag-active .task-card.item-drop-zone {
   border-color: #b8c9f4;
   border-style: dashed;
   background: #fbfcff;
 }
 
-.member-drag-active .backlog-table tr.member-drop-zone td,
-.member-drag-active .inbox-list > li.member-drop-zone,
-.member-drag-active .backlog-mobile > li.member-drop-zone {
+.item-drag-active .backlog-table tr.item-drop-zone td,
+.item-drag-active .inbox-list > li.item-drop-zone,
+.item-drag-active .backlog-mobile > li.item-drop-zone {
   background: #fbfcff;
 }
 
-.task-card.member-drop-over {
+.task-card.item-drop-over {
   border-color: var(--accent);
   border-style: solid;
   background: var(--accent-soft);
@@ -897,21 +875,21 @@ select:focus {
   transform: translateY(-2px);
 }
 
-.backlog-table tr.member-drop-over td {
+.backlog-table tr.item-drop-over td {
   background: var(--accent-soft);
   box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent);
 }
 
-.backlog-table tr.member-drop-over td:first-child {
+.backlog-table tr.item-drop-over td:first-child {
   box-shadow: inset 2px 2px 0 var(--accent), inset 0 -2px 0 var(--accent);
 }
 
-.backlog-table tr.member-drop-over td:last-child {
+.backlog-table tr.item-drop-over td:last-child {
   box-shadow: inset -2px 2px 0 var(--accent), inset 0 -2px 0 var(--accent);
 }
 
-.inbox-list > li.member-drop-over,
-.backlog-mobile > li.member-drop-over {
+.inbox-list > li.item-drop-over,
+.backlog-mobile > li.item-drop-over {
   position: relative;
   z-index: 1;
   border-radius: 12px;
@@ -2368,9 +2346,9 @@ button.linked-row {
   .context-bar {
     grid-column: auto;
     display: grid;
-    height: 120px;
+    height: 172px;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 52px 56px;
+    grid-template-rows: 48px 112px;
     gap: 4px;
     padding: 4px 12px;
   }
@@ -2407,16 +2385,24 @@ button.linked-row {
     font-size: 10px;
   }
 
-  .roles-wrap {
+  .header-tools {
+    display: grid;
     width: 100%;
-    max-width: none;
+    grid-template-areas:
+      "roles"
+      "reactions";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 56px 52px;
+    gap: 4px;
   }
 
-  .roles-dock {
-    min-height: 56px;
-    padding: 2px 2px 2px 4px;
-    border: 0;
-    background: transparent;
+  .header-tool-divider {
+    display: none;
+  }
+
+  .roles-wrap {
+    grid-area: roles;
+    width: 100%;
   }
 
   .role-source-list {
@@ -2424,20 +2410,21 @@ button.linked-row {
   }
 
   .role-drag-source {
-    width: 64px;
-    flex-basis: 64px;
+    width: 63px;
+    flex-basis: 63px;
   }
 
   .role-drag-source .role-chip {
-    max-width: 64px;
+    max-width: 63px;
   }
 
-  .crew-popover {
-    position: fixed;
-    top: 126px;
-    right: 10px;
-    left: 10px;
-    width: auto;
+  .reaction-source-list {
+    grid-area: reactions;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    justify-content: space-between;
+    overflow: hidden;
   }
 
   .app-main {
@@ -2719,7 +2706,7 @@ button.linked-row {
   }
 
   .graph-page {
-    height: calc(100svh - 120px - 74px - 44px);
+    height: calc(100svh - 172px - 74px - 44px);
     min-height: 560px;
   }
 

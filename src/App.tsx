@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Avatar } from './Avatar'
 import { sprintName, weekLabel } from './dates'
 import { RoleChip } from './RoleChip'
+import { ReactionSources } from './StickerBar'
 import { useStore } from './store-context'
 import { Icon, type IconName } from './ui/Icon'
 import { Archive } from './views/Archive'
@@ -34,7 +35,6 @@ export default function App() {
   } = useStore()
   const [view, setView] = useState<ViewId>('sprint')
   const [openId, setOpenId] = useState<string | null>(null)
-  const [rolesOpen, setRolesOpen] = useState(false)
   const [confirmRoles, setConfirmRoles] = useState(false)
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const openItem = useMemo(
@@ -96,8 +96,10 @@ export default function App() {
           </button>
         </div>
 
-        <div className="roles-wrap">
-          <div className="roles-dock" aria-label="Роли команды на выбранной неделе">
+        <div className="header-tools">
+          <ReactionSources />
+          <span className="header-tool-divider" aria-hidden="true" />
+          <div className="roles-wrap" aria-label="Роли команды на выбранной неделе">
             <div className="role-source-list">
               {state.members.map((member) => (
                 <div
@@ -112,50 +114,14 @@ export default function App() {
             </div>
             <button
               type="button"
-              className="icon-button roles-menu-button"
-              onClick={() => setRolesOpen((open) => !open)}
-              aria-label="Подробнее о ролях"
-              aria-expanded={rolesOpen}
-              aria-haspopup="dialog"
+              className="icon-button roles-shuffle-button"
+              onClick={() => setConfirmRoles(true)}
+              aria-label="Перемешать роли…"
+              title="Перемешать роли"
             >
-              <Icon name="more" />
+              <Icon name="dice" />
             </button>
           </div>
-          {rolesOpen ? (
-            <div className="crew-popover" role="dialog" aria-label="Роли этой недели">
-              <div className="popover-head">
-                <div>
-                  <strong>Роли этой недели</strong>
-                  <span>Распределяются на планировании во вторник и действуют всю неделю.</span>
-                </div>
-                <button type="button" className="icon-button" onClick={() => setRolesOpen(false)} aria-label="Закрыть">
-                  <Icon name="close" />
-                </button>
-              </div>
-              <div className="crew-list">
-                {state.members.map((member) => (
-                  <div className="crew-option" key={member.id}>
-                    <Avatar member={member} size="md" />
-                    <span>
-                      <strong>{member.name}</strong>
-                      <RoleChip roleId={state.roles?.[member.id]} />
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <button
-                type="button"
-                className="secondary-button popover-action"
-                onClick={() => {
-                  setRolesOpen(false)
-                  setConfirmRoles(true)
-                }}
-              >
-                <Icon name="dice" />
-                Перемешать роли…
-              </button>
-            </div>
-          ) : null}
         </div>
       </header>
 

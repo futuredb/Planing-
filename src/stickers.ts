@@ -28,6 +28,14 @@ export function startStickerDrag(event: DragEvent, id: StickerId) {
   event.dataTransfer.setData(STICKER_MIME, id)
   event.dataTransfer.setData('text/plain', `sticker:${id}`)
   event.dataTransfer.effectAllowed = 'copy'
+  document.documentElement.classList.add('item-drag-active')
+}
+
+export function endStickerDrag() {
+  document.documentElement.classList.remove('item-drag-active')
+  document.querySelectorAll('.item-drop-over').forEach((element) => {
+    element.classList.remove('item-drop-over')
+  })
 }
 
 export function startPlacedStickerDrag(
@@ -108,23 +116,33 @@ export function stickerDropBind(
     from?: StickerFrom,
   ) => void,
 ) {
+  function isStickerDrag(event: DragEvent) {
+    return [...event.dataTransfer.types].some(
+      (type) => type === STICKER_MIME || type === PLACED_MIME,
+    )
+  }
+
   return {
+    onDragEnter: (event: DragEvent) => {
+      if (!isStickerDrag(event)) return
+      event.currentTarget.classList.add('item-drop-over')
+    },
     onDragOver: (event: DragEvent) => {
-      if (
-        ![...event.dataTransfer.types].some(
-          (t) => t === STICKER_MIME || t === PLACED_MIME || t === 'text/plain',
-        )
-      ) {
-        return
-      }
+      if (!isStickerDrag(event)) return
       event.preventDefault()
       event.dataTransfer.dropEffect = 'copy'
+    },
+    onDragLeave: (event: DragEvent) => {
+      const next = event.relatedTarget
+      if (next instanceof Node && event.currentTarget.contains(next)) return
+      event.currentTarget.classList.remove('item-drop-over')
     },
     onDrop: (event: DragEvent) => {
       const sticker = readStickerDrop(event)
       if (!sticker || !STICKERS.some((s) => s.id === sticker)) return
       event.preventDefault()
       event.stopPropagation()
+      event.currentTarget.classList.remove('item-drop-over')
       markDropConsumed()
       const placed = readPlacedSticker(event)
       const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()

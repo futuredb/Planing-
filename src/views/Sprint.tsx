@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
 import { cardDropBind } from '../card-drop'
+import { memberAvatar } from '../member'
 import { ReactionBar } from '../StickerBar'
 import { useStore } from '../store-context'
 import type { Item, Lane } from '../types'
@@ -13,14 +14,21 @@ const columns: { lane: Lane; title: string; empty: string }[] = [
   { lane: 'done', title: 'Готово', empty: 'Завершённые задачи ждут здесь.' },
 ]
 
+const unassignedFilter = 'unassigned'
+
 export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
   const { state, weekId, setGoal, toggleGoalClosed, moveItem, closeSprint } = useStore()
   const [actionsOpen, setActionsOpen] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
+  const [assigneeFilters, setAssigneeFilters] = useState<Set<string>>(() => new Set())
   const boardRef = useRef<HTMLDivElement>(null)
   const goalRef = useRef<HTMLTextAreaElement>(null)
   const sprint = state.sprints.find((candidate) => candidate.id === weekId)
   const inSprint = state.items.filter((item) => item.sprintId === weekId && item.lane !== 'archive')
+  const filtersActive = assigneeFilters.size > 0
+  const visibleInSprint = filtersActive
+    ? inSprint.filter((item) => assigneeFilters.has(item.assigneeId ?? unassignedFilter))
+    : inSprint
 
   useLayoutEffect(() => {
     const goal = goalRef.current
@@ -40,6 +48,15 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
       behavior: 'smooth',
       block: 'nearest',
       inline: 'start',
+    })
+  }
+
+  function toggleAssigneeFilter(id: string) {
+    setAssigneeFilters((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
     })
   }
 
@@ -101,18 +118,59 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
         </div>
       ) : null}
 
+      <div className="assignee-filters" role="group" aria-label="Фильтр по исполнителям">
+        <span className="assignee-filter-label">Исполнители</span>
+        <div className="assignee-filter-list">
+          <button
+            type="button"
+            className={`assignee-filter all${filtersActive ? '' : ' active'}`}
+            aria-label="Показать все задачи"
+            aria-pressed={!filtersActive}
+            onClick={() => setAssigneeFilters(new Set())}
+          >
+            Все
+          </button>
+          {state.members.map((member) => {
+            const active = assigneeFilters.has(member.id)
+            return (
+              <button
+                type="button"
+                key={member.id}
+                className={`assignee-filter${active ? ' active' : ''}`}
+                aria-label={`Фильтр по исполнителю: ${member.name}`}
+                aria-pressed={active}
+                onClick={() => toggleAssigneeFilter(member.id)}
+              >
+                <img src={memberAvatar(member)} alt="" draggable={false} />
+                <span>{member.name}</span>
+              </button>
+            )
+          })}
+          <button
+            type="button"
+            className={`assignee-filter${assigneeFilters.has(unassignedFilter) ? ' active' : ''}`}
+            aria-label="Фильтр: без исполнителя"
+            aria-pressed={assigneeFilters.has(unassignedFilter)}
+            onClick={() => toggleAssigneeFilter(unassignedFilter)}
+          >
+            <span className="assignee-filter-empty">—</span>
+            <span>Без исполнителя</span>
+          </button>
+        </div>
+      </div>
+
       <div className="lane-tabs" aria-label="Колонки спринта">
         {columns.map((column) => (
           <button type="button" key={column.lane} onClick={() => scrollLane(column.lane)}>
             {column.title}
-            <span>{inSprint.filter((item) => item.lane === column.lane).length}</span>
+            <span>{visibleInSprint.filter((item) => item.lane === column.lane).length}</span>
           </button>
         ))}
       </div>
 
       <div className="board" ref={boardRef}>
         {columns.map((column) => {
-          const items = inSprint.filter((item) => item.lane === column.lane)
+          const items = visibleInSprint.filter((item) => item.lane === column.lane)
           return (
             <section
               key={column.lane}
@@ -129,7 +187,11 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
                 {items.map((item) => (
                   <SprintCard key={item.id} item={item} lane={column.lane} onOpen={onOpen} />
                 ))}
-                {!items.length ? <div className="column-empty">{column.empty}</div> : null}
+                {!items.length ? (
+                  <div className="column-empty">
+                    {filtersActive ? 'У выбранных исполнителей здесь нет задач.' : column.empty}
+                  </div>
+                ) : null}
               </div>
             </section>
           )

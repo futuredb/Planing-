@@ -79,6 +79,32 @@ test('длинная цель недели растёт по высоте и н�
   await expectNoPageOverflow(page)
 })
 
+test('доска фильтруется по одному или нескольким исполнителям', async ({ page }) => {
+  const dasha = page.getByRole('button', { name: 'Фильтр по исполнителю: Даша' })
+  const svyat = page.getByRole('button', { name: 'Фильтр по исполнителю: Свят' })
+  const all = page.getByRole('button', { name: 'Показать все задачи' })
+
+  await dasha.click()
+  await expect(dasha).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Автозаполнение реквизитов в онбординге', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Проверка шагов онбординга на стейдже', exact: true })).toBeHidden()
+  await expect(page.locator('[data-lane="todo"] .column-head > span')).toHaveText('1')
+  await expect(page.locator('[data-lane="doing"] .column-head > span')).toHaveText('0')
+
+  await svyat.click()
+  await expect(svyat).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Проверка шагов онбординга на стейдже', exact: true })).toBeVisible()
+  await expect(page.locator('[data-lane="todo"] .column-head > span')).toHaveText('1')
+  await expect(page.locator('[data-lane="doing"] .column-head > span')).toHaveText('1')
+
+  await all.click()
+  await expect(all).toHaveAttribute('aria-pressed', 'true')
+  await expect(dasha).toHaveAttribute('aria-pressed', 'false')
+  await expect(svyat).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByRole('button', { name: 'Починить превью логотипа в шапке заявки', exact: true })).toBeVisible()
+  await expectNoPageOverflow(page)
+})
+
 test('задача двигается по спринту и реакция сохраняется', async ({ page }) => {
   const card = page.locator('.task-card').filter({ hasText: 'Автозаполнение реквизитов' })
   await card.getByLabel('Добавить реакцию').click()

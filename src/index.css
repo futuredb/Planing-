@@ -888,6 +888,92 @@ textarea:focus {
   display: none;
 }
 
+.assignee-filters {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  margin: -2px 0 14px;
+}
+
+.assignee-filter-label {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.assignee-filter-list {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.assignee-filter-list::-webkit-scrollbar {
+  display: none;
+}
+
+.assignee-filter {
+  display: inline-flex;
+  min-height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px 4px 5px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-strong);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease, transform 100ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.assignee-filter.all {
+  padding-inline: 13px;
+}
+
+.assignee-filter > img,
+.assignee-filter-empty {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 999px;
+}
+
+.assignee-filter > img {
+  object-fit: cover;
+}
+
+.assignee-filter-empty {
+  display: grid;
+  place-items: center;
+  background: var(--surface-strong);
+  color: var(--muted);
+}
+
+.assignee-filter.active {
+  border-color: #cbd8f7;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.assignee-filter:active {
+  transform: scale(0.98);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .assignee-filter:not(.active):hover {
+    background: var(--surface-strong);
+    color: var(--ink);
+  }
+}
+
 .board {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2666,6 +2752,21 @@ button.linked-row {
     padding: 0 16px;
     overflow-x: auto;
     scrollbar-width: none;
+  }
+
+  .assignee-filters {
+    display: grid;
+    gap: 4px;
+    margin: -1px -16px 12px;
+  }
+
+  .assignee-filter-label {
+    padding: 0 16px;
+  }
+
+  .assignee-filter-list {
+    padding: 2px 16px;
+    scroll-padding-inline: 16px;
   }
 
   .lane-tabs::-webkit-scrollbar {

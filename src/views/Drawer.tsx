@@ -7,6 +7,7 @@ import { filesToAttachments } from '../storage'
 import { useStore } from '../store-context'
 import type { Attachment, Item, Lane } from '../types'
 import { Icon } from '../ui/Icon'
+import { Select } from '../ui/Select'
 
 type DrawerTab = 'details' | 'score' | 'links' | 'comments'
 
@@ -222,14 +223,14 @@ export function Drawer({
                   </div>
                   <label className="detail-field">
                     <span className="field-label">Статус</span>
-                    <select value={item.lane} onChange={(event) => setLane(event.target.value as Lane)}>
+                    <Select value={item.lane} onChange={(event) => setLane(event.target.value as Lane)}>
                       <option value="inbox">Входящие</option>
                       <option value="backlog">Бэклог</option>
                       <option value="todo">Спринт</option>
                       <option value="doing">В работе</option>
                       <option value="done">Готово</option>
                       <option value="archive">Архив</option>
-                    </select>
+                    </Select>
                   </label>
                 </div>
 
@@ -331,7 +332,7 @@ export function Drawer({
                   <h2>Связанные задачи</h2>
                   <p>Свяжите существующую задачу или создайте несколько частей из списка.</p>
                 </div>
-                <select
+                <Select
                   defaultValue=""
                   onChange={(event) => {
                     const title = event.target.value
@@ -352,7 +353,7 @@ export function Drawer({
                     .map((candidate) => (
                       <option key={candidate.id} value={candidate.title}>{candidate.title}</option>
                     ))}
-                </select>
+                </Select>
                 <textarea
                   rows={4}
                   value={parts}

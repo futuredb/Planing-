@@ -9,6 +9,7 @@ import { filesToAttachments } from '../storage'
 import { useStore } from '../store-context'
 import type { Attachment } from '../types'
 import { Icon } from '../ui/Icon'
+import { Select } from '../ui/Select'
 
 export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   const { state, addIdea, pullToSprint, moveItem, assignItem, toggleReaction } = useStore()
@@ -87,7 +88,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
             />
             <label className="capture-author">
               <span>Кто добавляет</span>
-              <select
+              <Select
                 value={authorId}
                 onChange={(event) => setAuthorId(event.target.value)}
                 aria-label="Кто добавляет на разбор"
@@ -98,7 +99,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
                     {member.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             {files.length ? (
               <div className="thumbs">

@@ -139,6 +139,42 @@ select:focus {
   border-color: var(--accent);
 }
 
+.select-control {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.select-control select {
+  appearance: none;
+  padding-right: 38px;
+  border-color: var(--line-strong);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(25, 32, 27, 0.04);
+  font-weight: 600;
+}
+
+.select-control select:focus-visible {
+  outline: 0;
+  border-color: #8baaf0;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.select-control-icon {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  pointer-events: none;
+  color: var(--muted);
+  transform: translateY(-50%);
+  transition: color 160ms ease;
+}
+
+.select-control:focus-within .select-control-icon {
+  color: var(--accent);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1448,10 +1484,8 @@ select:focus {
 
 .capture-author {
   display: grid;
-  width: min(100%, 360px);
-  grid-template-columns: auto minmax(160px, 1fr);
-  align-items: center;
-  gap: 10px;
+  width: min(100%, 240px);
+  gap: 6px;
 }
 
 .capture-author > span {
@@ -1460,8 +1494,7 @@ select:focus {
   font-weight: 650;
 }
 
-.capture-author select {
-  min-height: 38px;
+.capture-author .select-control select {
   font-size: 12px;
 }
 
@@ -2683,8 +2716,6 @@ button.linked-row {
 
   .capture-author {
     width: 100%;
-    grid-template-columns: 1fr;
-    gap: 5px;
   }
 
   .toolbar-button {

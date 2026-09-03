@@ -9,6 +9,7 @@ export type IconName =
   | 'archive'
   | 'left'
   | 'right'
+  | 'down'
   | 'dice'
   | 'more'
   | 'close'
@@ -33,6 +34,7 @@ const paths: Record<IconName, ReactNode> = {
   archive: <><path d="M4 8h16v12H4zM3 4h18v4H3zM9 12h6"/></>,
   left: <path d="m15 18-6-6 6-6"/>,
   right: <path d="m9 18 6-6-6-6"/>,
+  down: <path d="m6 9 6 6 6-6"/>,
   dice: <><rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="9" cy="15" r="1" fill="currentColor" stroke="none"/></>,
   more: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/></>,
   close: <path d="m6 6 12 12M18 6 6 18"/>,

@@ -45,6 +45,7 @@ export function Drawer({
   } = useStore()
   const [tab, setTab] = useState<DrawerTab>('details')
   const [parts, setParts] = useState('')
+  const [linkTargetId, setLinkTargetId] = useState('')
   const [comment, setComment] = useState('')
   const [preview, setPreview] = useState<Attachment | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -221,17 +222,22 @@ export function Drawer({
                       ))}
                     </div>
                   </div>
-                  <label className="detail-field">
+                  <div className="detail-field">
                     <span className="field-label">Статус</span>
-                    <Select value={item.lane} onChange={(event) => setLane(event.target.value as Lane)}>
-                      <option value="inbox">Входящие</option>
-                      <option value="backlog">Бэклог</option>
-                      <option value="todo">Спринт</option>
-                      <option value="doing">В работе</option>
-                      <option value="done">Готово</option>
-                      <option value="archive">Архив</option>
-                    </Select>
-                  </label>
+                    <Select
+                      value={item.lane}
+                      onValueChange={(value) => setLane(value as Lane)}
+                      ariaLabel="Статус"
+                      options={[
+                        { value: 'inbox', label: 'Входящие' },
+                        { value: 'backlog', label: 'Бэклог' },
+                        { value: 'todo', label: 'Спринт' },
+                        { value: 'doing', label: 'В работе' },
+                        { value: 'done', label: 'Готово' },
+                        { value: 'archive', label: 'Архив' },
+                      ]}
+                    />
+                  </div>
                 </div>
 
                 <div className="drawer-actions">
@@ -333,27 +339,27 @@ export function Drawer({
                   <p>Свяжите существующую задачу или создайте несколько частей из списка.</p>
                 </div>
                 <Select
-                  defaultValue=""
-                  onChange={(event) => {
-                    const title = event.target.value
-                    if (!title) return
-                    linkTasks(item.id, [title])
-                    event.target.value = ''
+                  value={linkTargetId}
+                  onValueChange={(candidateId) => {
+                    setLinkTargetId(candidateId)
+                    const candidate = state.items.find((entry) => entry.id === candidateId)
+                    if (candidate) linkTasks(item.id, [candidate.title])
+                    setLinkTargetId('')
                   }}
-                >
-                  <option value="">Выбрать существующую задачу…</option>
-                  {state.items
-                    .filter(
-                      (candidate) =>
-                        candidate.lane !== 'archive' &&
-                        candidate.id !== item.id &&
-                        !(item.relatedIds ?? []).includes(candidate.id) &&
-                        candidate.parentId !== item.id,
-                    )
-                    .map((candidate) => (
-                      <option key={candidate.id} value={candidate.title}>{candidate.title}</option>
-                    ))}
-                </Select>
+                  ariaLabel="Выбрать связанную задачу"
+                  options={[
+                    { value: '', label: 'Выбрать существующую задачу…' },
+                    ...state.items
+                      .filter(
+                        (candidate) =>
+                          candidate.lane !== 'archive' &&
+                          candidate.id !== item.id &&
+                          !(item.relatedIds ?? []).includes(candidate.id) &&
+                          candidate.parentId !== item.id,
+                      )
+                      .map((candidate) => ({ value: candidate.id, label: candidate.title })),
+                  ]}
+                />
                 <textarea
                   rows={4}
                   value={parts}

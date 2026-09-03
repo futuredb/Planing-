@@ -86,21 +86,18 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
               placeholder="Контекст, ссылка или цитата из чата"
               aria-label="Контекст идеи"
             />
-            <label className="capture-author">
+            <div className="capture-author">
               <span>Кто добавляет</span>
               <Select
                 value={authorId}
-                onChange={(event) => setAuthorId(event.target.value)}
-                aria-label="Кто добавляет на разбор"
-              >
-                <option value="">Не указано</option>
-                {state.members.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
+                onValueChange={setAuthorId}
+                ariaLabel="Кто добавляет на разбор"
+                options={[
+                  { value: '', label: 'Не указано' },
+                  ...state.members.map((member) => ({ value: member.id, label: member.name })),
+                ]}
+              />
+            </div>
             {files.length ? (
               <div className="thumbs">
                 {files.map((file) => (

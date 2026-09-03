@@ -1446,6 +1446,25 @@ select:focus {
   background: var(--surface-subtle);
 }
 
+.capture-author {
+  display: grid;
+  width: min(100%, 360px);
+  grid-template-columns: auto minmax(160px, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.capture-author > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.capture-author select {
+  min-height: 38px;
+  font-size: 12px;
+}
+
 .capture-toolbar {
   display: flex;
   align-items: center;
@@ -2660,6 +2679,12 @@ button.linked-row {
 
   .capture-toolbar {
     align-items: flex-end;
+  }
+
+  .capture-author {
+    width: 100%;
+    grid-template-columns: 1fr;
+    gap: 5px;
   }
 
   .toolbar-button {

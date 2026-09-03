@@ -15,6 +15,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [files, setFiles] = useState<Attachment[]>([])
+  const [authorId, setAuthorId] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [over, setOver] = useState(false)
 
@@ -34,7 +35,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!title.trim() && !body.trim() && !files.length) return
-    addIdea({ title, body, attachments: files })
+    addIdea({ title, body, attachments: files, authorId: authorId || null })
     setTitle('')
     setBody('')
     setFiles([])
@@ -84,6 +85,21 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
               placeholder="Контекст, ссылка или цитата из чата"
               aria-label="Контекст идеи"
             />
+            <label className="capture-author">
+              <span>Кто добавляет</span>
+              <select
+                value={authorId}
+                onChange={(event) => setAuthorId(event.target.value)}
+                aria-label="Кто добавляет на разбор"
+              >
+                <option value="">Не указано</option>
+                {state.members.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             {files.length ? (
               <div className="thumbs">
                 {files.map((file) => (

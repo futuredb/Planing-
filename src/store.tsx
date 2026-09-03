@@ -24,7 +24,12 @@ export type Store = {
   assignItem: (itemId: string, memberId: string | null, fromItemId?: string | null) => void
   setGoal: (text: string) => void
   toggleGoalClosed: () => void
-  addIdea: (input: { title: string; body: string; attachments: Attachment[] }) => void
+  addIdea: (input: {
+    title: string
+    body: string
+    attachments: Attachment[]
+    authorId: string | null
+  }) => void
   updateItem: (id: string, patch: Partial<Item>) => void
   removeItem: (id: string) => void
   moveItem: (id: string, lane: Lane, sprintId?: string | null) => void
@@ -226,7 +231,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             sp.id === weekId ? { ...sp, goalClosed: !sp.goalClosed } : sp,
           ),
         })),
-      addIdea: ({ title, body, attachments }) =>
+      addIdea: ({ title, body, attachments, authorId }) =>
         mutate((s) => ({
           ...s,
           items: [
@@ -238,7 +243,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               sprintId: null,
               parentId: null,
               assigneeId: null,
-              authorId: me,
+              authorId,
               scores: {},
               attachments,
               stickers: [],

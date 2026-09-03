@@ -152,8 +152,20 @@ test('инспектор редактирует оценку и закрывае
 test('идея быстро добавляется во входящие', async ({ page }) => {
   await page.getByRole('button', { name: 'Входящие', exact: true }).click()
   await page.getByLabel('Название идеи').fill('Проверить новый сценарий')
+  const author = page.getByLabel('Кто добавляет на разбор')
+  await expect(author).toHaveValue('')
+  await author.selectOption('m2')
   await page.getByRole('button', { name: 'Добавить', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Проверить новый сценарий', exact: true })).toBeVisible()
+  const ideaRow = page.locator('.inbox-list > li').filter({ hasText: 'Проверить новый сценарий' })
+  await expect(ideaRow.getByRole('button', { name: 'Проверить новый сценарий', exact: true })).toBeVisible()
+  await expect(ideaRow.locator('.author-meta')).toContainText('Добавил Ваня')
+  await page.waitForTimeout(400)
+
+  const saved = await page.request.get('/api/state').then((response) => response.json())
+  const idea = saved.items.find(
+    (item: { title: string }) => item.title === 'Проверить новый сценарий',
+  )
+  expect(idea.authorId).toBe('m2')
 })
 
 test('задача от агента помечена на карточке и в инспекторе', async ({ page }) => {

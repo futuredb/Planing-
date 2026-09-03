@@ -2,7 +2,6 @@ import { useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
 import { cardDropBind } from '../card-drop'
-import { memberAvatar } from '../member'
 import { ReactionBar } from '../StickerBar'
 import { useStore } from '../store-context'
 import type { Item, Lane } from '../types'
@@ -141,7 +140,6 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
                 aria-pressed={active}
                 onClick={() => toggleAssigneeFilter(member.id)}
               >
-                <img src={memberAvatar(member)} alt="" draggable={false} />
                 <span>{member.name}</span>
               </button>
             )
@@ -153,7 +151,6 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
             aria-pressed={assigneeFilters.has(unassignedFilter)}
             onClick={() => toggleAssigneeFilter(unassignedFilter)}
           >
-            <span className="assignee-filter-empty">—</span>
             <span>Без исполнителя</span>
           </button>
         </div>

@@ -919,14 +919,14 @@ textarea:focus {
 
 .assignee-filter {
   display: inline-flex;
-  min-height: 44px;
+  min-height: 32px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 7px;
-  padding: 4px 11px 4px 5px;
-  border: 1px solid transparent;
+  justify-content: center;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: transparent;
+  background: var(--surface);
   color: var(--muted-strong);
   font-size: 11px;
   font-weight: 650;
@@ -936,25 +936,6 @@ textarea:focus {
 
 .assignee-filter.all {
   padding-inline: 13px;
-}
-
-.assignee-filter > img,
-.assignee-filter-empty {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  border-radius: 999px;
-}
-
-.assignee-filter > img {
-  object-fit: cover;
-}
-
-.assignee-filter-empty {
-  display: grid;
-  place-items: center;
-  background: var(--surface-strong);
-  color: var(--muted);
 }
 
 .assignee-filter.active {
@@ -2767,6 +2748,10 @@ button.linked-row {
   .assignee-filter-list {
     padding: 2px 16px;
     scroll-padding-inline: 16px;
+  }
+
+  .assignee-filter {
+    min-height: 44px;
   }
 
   .lane-tabs::-webkit-scrollbar {

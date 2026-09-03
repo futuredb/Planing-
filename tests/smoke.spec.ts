@@ -84,6 +84,7 @@ test('доска фильтруется по одному или несколь�
   const svyat = page.getByRole('button', { name: 'Фильтр по исполнителю: Свят' })
   const all = page.getByRole('button', { name: 'Показать все задачи' })
 
+  await expect(page.locator('.assignee-filter img')).toHaveCount(0)
   await dasha.click()
   await expect(dasha).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Автозаполнение реквизитов в онбординге', exact: true })).toBeVisible()

@@ -31,3 +31,15 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: docker build -t funban:${{ github.sha }} .
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger Coolify deployment
+        run: >
+          curl --fail-with-body --retry 3 --retry-all-errors
+          --request POST "${{ secrets.COOLIFY_WEBHOOK }}"
+          --header "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"

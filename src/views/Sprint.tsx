@@ -118,7 +118,6 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
       ) : null}
 
       <div className="assignee-filters" role="group" aria-label="Фильтр по исполнителям">
-        <span className="assignee-filter-label">Исполнители</span>
         <div className="assignee-filter-list">
           <button
             type="button"

@@ -889,18 +889,8 @@ textarea:focus {
 }
 
 .assignee-filters {
-  display: flex;
   min-width: 0;
-  align-items: center;
-  gap: 10px;
   margin: -2px 0 14px;
-}
-
-.assignee-filter-label {
-  flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 680;
 }
 
 .assignee-filter-list {
@@ -908,8 +898,8 @@ textarea:focus {
   min-width: 0;
   align-items: center;
   gap: 5px;
-  padding: 2px;
-  overflow-x: auto;
+  padding: 4px 2px;
+  overflow: visible;
   scrollbar-width: none;
 }
 
@@ -2736,17 +2726,13 @@ button.linked-row {
   }
 
   .assignee-filters {
-    display: grid;
-    gap: 4px;
     margin: -1px -16px 12px;
   }
 
-  .assignee-filter-label {
-    padding: 0 16px;
-  }
-
   .assignee-filter-list {
-    padding: 2px 16px;
+    padding: 6px 16px;
+    overflow-x: auto;
+    overflow-y: hidden;
     scroll-padding-inline: 16px;
   }
 

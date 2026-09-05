@@ -1,11 +1,60 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
 import { cardDropBind } from '../card-drop'
 import { ReactionBar } from '../StickerBar'
 import { useStore } from '../store-context'
-import type { Criterion } from '../types'
+import type { Criterion, Item } from '../types'
 import { Icon } from '../ui/Icon'
+
+
+type BacklogTab = 'list' | 'matrix'
+type MatrixBucket = 'urgent-important' | 'not-urgent-important' | 'urgent-not-important' | 'not-urgent-not-important'
+
+const MATRIX_BUCKETS: { id: MatrixBucket; title: string }[] = [
+  { id: 'urgent-important', title: 'Срочно важно' },
+  { id: 'not-urgent-important', title: 'Не срочно важно' },
+  { id: 'urgent-not-important', title: 'Срочно не важно' },
+  { id: 'not-urgent-not-important', title: 'Не срочно не важно' },
+]
+
+const MATRIX_ITEM_MIME = 'application/x-funban-matrix-item'
+
+function criterionByName(criteria: Criterion[], name: string) {
+  return criteria.find((criterion) => criterion.name.trim().toLowerCase() === name.toLowerCase()) ?? null
+}
+
+function scoreValue(item: Item, criterion: Criterion | null) {
+  if (!criterion) return 0
+  return item.scores[criterion.id] ?? 0
+}
+
+function hasMatrixScores(item: Item, focus: Criterion | null, agenda: Criterion | null) {
+  if (!focus || !agenda) return false
+  return item.scores[focus.id] != null && item.scores[agenda.id] != null
+}
+
+function matrixBucket(item: Item, focus: Criterion | null, agenda: Criterion | null): MatrixBucket {
+  const focusScore = scoreValue(item, focus)
+  const agendaScore = scoreValue(item, agenda)
+  const important = focusScore >= ((focus?.max ?? 3) / 2)
+  const urgent = agendaScore >= ((agenda?.max ?? 3) / 2)
+
+  if (urgent && important) return 'urgent-important'
+  if (!urgent && important) return 'not-urgent-important'
+  if (urgent && !important) return 'urgent-not-important'
+  return 'not-urgent-not-important'
+}
+
+function bucketScores(bucket: MatrixBucket, focus: Criterion | null, agenda: Criterion | null) {
+  const important = bucket === 'urgent-important' || bucket === 'not-urgent-important'
+  const urgent = bucket === 'urgent-important' || bucket === 'urgent-not-important'
+
+  return {
+    focus: important ? (focus?.max ?? 3) : 0,
+    agenda: urgent ? (agenda?.max ?? 3) : 0,
+  }
+}
 
 function parseScore(raw: string, criterion: Criterion): number | null {
   const text = raw.trim().replace(',', '.')
@@ -20,11 +69,11 @@ function parseScore(raw: string, criterion: Criterion): number | null {
 function ScoreCell({
   value,
   criterion,
-  onCommit,
+  onChange,
 }: {
-  value: number | undefined
+  value: number | null | undefined
   criterion: Criterion
-  onCommit: (next: number | null) => void
+  onChange: (next: number | null) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -43,9 +92,8 @@ function ScoreCell({
 
   function commit() {
     const next = parseScore(draft, criterion)
-    const previous = value ?? null
     setEditing(false)
-    if (next !== previous) onCommit(next)
+    onChange(next)
   }
 
   if (!editing) {
@@ -92,10 +140,77 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
     toggleReaction,
   } = useStore()
   const [settings, setSettings] = useState(false)
+  const [tab, setTab] = useState<BacklogTab>('list')
+  const [draftScores, setDraftScores] = useState<Record<string, number | null>>({})
   const rows = state.items
     .filter((item) => item.lane === 'backlog' && !item.parentId)
     .slice()
     .sort((a, b) => (scoreOf(b) ?? -1) - (scoreOf(a) ?? -1))
+  const focusCriterion = criterionByName(state.criteria, 'Фокус')
+  const agendaCriterion = criterionByName(state.criteria, 'Повестка')
+  const matrixRows = rows.filter((item) => hasMatrixScores(item, focusCriterion, agendaCriterion))
+  const unassignedMatrixRows = rows.filter((item) => !hasMatrixScores(item, focusCriterion, agendaCriterion))
+  const matrix = MATRIX_BUCKETS.map((bucket) => ({
+    ...bucket,
+    items: matrixRows.filter((item) => matrixBucket(item, focusCriterion, agendaCriterion) === bucket.id),
+  }))
+
+  function draftKey(itemId: string, criterionId: string) {
+    return `${itemId}:${criterionId}`
+  }
+
+  function scoreDraft(item: Item, criterion: Criterion) {
+    const key = draftKey(item.id, criterion.id)
+    return Object.prototype.hasOwnProperty.call(draftScores, key) ? draftScores[key] : item.scores[criterion.id]
+  }
+
+  function setScoreDraft(item: Item, criterion: Criterion, next: number | null) {
+    const key = draftKey(item.id, criterion.id)
+    const saved = item.scores[criterion.id] ?? null
+    setDraftScores((current) => {
+      const copy = { ...current }
+      if (next === saved) {
+        delete copy[key]
+      } else {
+        copy[key] = next
+      }
+      return copy
+    })
+  }
+
+  function hasScoreDraft(item: Item) {
+    return state.criteria.some((criterion) => Object.prototype.hasOwnProperty.call(draftScores, draftKey(item.id, criterion.id)))
+  }
+
+  function saveScoreDrafts(item: Item) {
+    const changedCriteria = state.criteria.filter((criterion) => Object.prototype.hasOwnProperty.call(draftScores, draftKey(item.id, criterion.id)))
+    changedCriteria.forEach((criterion) => setScore(item.id, criterion.id, draftScores[draftKey(item.id, criterion.id)]))
+    if (!changedCriteria.length) return
+    setDraftScores((current) => {
+      const copy = { ...current }
+      changedCriteria.forEach((criterion) => delete copy[draftKey(item.id, criterion.id)])
+      return copy
+    })
+  }
+
+  function startMatrixDrag(item: Item, event: DragEvent<HTMLElement>) {
+    if ((event.target as HTMLElement).closest('button, input, textarea, select')) {
+      event.preventDefault()
+      return
+    }
+    event.dataTransfer.setData(MATRIX_ITEM_MIME, item.id)
+    event.dataTransfer.setData('text/plain', `matrix-item:${item.id}`)
+    event.dataTransfer.effectAllowed = 'move'
+  }
+
+  function onMatrixDrop(bucket: MatrixBucket, event: DragEvent<HTMLElement>) {
+    const itemId = event.dataTransfer.getData(MATRIX_ITEM_MIME)
+    if (!itemId || !focusCriterion || !agendaCriterion) return
+    const next = bucketScores(bucket, focusCriterion, agendaCriterion)
+    event.preventDefault()
+    setScore(itemId, focusCriterion.id, next.focus)
+    setScore(itemId, agendaCriterion.id, next.agenda)
+  }
 
   useEffect(() => {
     if (!settings) return
@@ -120,8 +235,18 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
         </button>
       </div>
 
+      <div className="backlog-view-tabs" aria-label="Виды бэклога">
+        <button type="button" className={tab === 'list' ? 'active' : ''} onClick={() => setTab('list')}>
+          Список
+        </button>
+        <button type="button" className={tab === 'matrix' ? 'active' : ''} onClick={() => setTab('matrix')}>
+          Матрица
+        </button>
+      </div>
+
       {rows.length ? (
         <>
+          {tab === 'list' ? (
           <div className="backlog-table-wrap">
             <table className="backlog-table">
               <thead>
@@ -179,16 +304,24 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                         </div>
                       </td>
                       {state.criteria.map((criterion) => (
-                        <td key={criterion.id} className="score-cell">
+                        <td
+                          key={criterion.id}
+                          className={`score-cell ${Object.prototype.hasOwnProperty.call(draftScores, draftKey(item.id, criterion.id)) ? 'score-cell-draft' : ''}`}
+                        >
                           <ScoreCell
-                            value={item.scores[criterion.id]}
+                            value={scoreDraft(item, criterion)}
                             criterion={criterion}
-                            onCommit={(next) => setScore(item.id, criterion.id, next)}
+                            onChange={(next) => setScoreDraft(item, criterion, next)}
                           />
                         </td>
                       ))}
                       <td className="total-score">{scoreOf(item) ?? '—'}</td>
                       <td className="row-action">
+                        {hasScoreDraft(item) ? (
+                          <button type="button" className="icon-button score-save-button" onClick={() => saveScoreDrafts(item)} aria-label="Сохранить оценки">
+                            <Icon name="check" />
+                          </button>
+                        ) : null}
                         <button type="button" className="secondary-button compact-button" onClick={() => pullToSprint(item.id)}>
                           В спринт
                           <Icon name="arrow" size={16} />
@@ -200,7 +333,9 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
               </tbody>
             </table>
           </div>
+          ) : null}
 
+          {tab === 'list' ? (
           <ul className="backlog-mobile">
             {rows.map((item) => {
               const owner = state.members.find((member) => member.id === item.assigneeId)
@@ -249,6 +384,105 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
               )
             })}
           </ul>
+          ) : null}
+
+          {tab === 'matrix' ? (
+            <>
+              <div className="backlog-matrix">
+                {matrix.map((bucket) => (
+                  <section
+                    key={bucket.id}
+                    className={`matrix-quadrant ${bucket.id}`}
+                    onDragOver={(event) => {
+                      if (!Array.from(event.dataTransfer.types).includes(MATRIX_ITEM_MIME)) return
+                      event.preventDefault()
+                      event.dataTransfer.dropEffect = 'move'
+                    }}
+                    onDrop={(event) => onMatrixDrop(bucket.id, event)}
+                  >
+                    <header className="matrix-head">
+                      <h2>{bucket.title}</h2>
+                      <span>{bucket.items.length}</span>
+                    </header>
+                    <div className="matrix-items">
+                      {bucket.items.length ? bucket.items.map((item) => {
+                        const owner = state.members.find((member) => member.id === item.assigneeId)
+                        return (
+                          <article
+                            key={item.id}
+                            className="matrix-card"
+                            draggable
+                            onDragStart={(event) => startMatrixDrag(item, event)}
+                          >
+                            <div className="task-title-line">
+                              <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
+                                {item.title}
+                              </button>
+                              <AgentBadge item={item} compact />
+                            </div>
+                            <div className="backlog-meta matrix-card-footer">
+                              {owner ? (
+                                <span className="owner-chip">
+                                  <AssignedFace itemId={item.id} member={owner} />
+                                  <span>{owner.name}</span>
+                                </span>
+                              ) : (
+                                <span className="unassigned">Без исполнителя</span>
+                              )}
+                              <ReactionBar item={item} compact />
+                              <strong className="matrix-score">{scoreOf(item) ?? '—'}</strong>
+                            </div>
+                          </article>
+                        )
+                      }) : (
+                        <p className="matrix-empty">Нет задач</p>
+                      )}
+                    </div>
+                  </section>
+                ))}
+              </div>
+              {unassignedMatrixRows.length ? (
+                <section className="matrix-unassigned">
+                  <header className="matrix-unassigned-head">
+                    <h2>Нераспределённые</h2>
+                    <span>{unassignedMatrixRows.length}</span>
+                  </header>
+                  <div className="matrix-items">
+                    {unassignedMatrixRows.map((item) => {
+                      const owner = state.members.find((member) => member.id === item.assigneeId)
+                      return (
+                        <article
+                          key={item.id}
+                          className="matrix-card"
+                          draggable
+                          onDragStart={(event) => startMatrixDrag(item, event)}
+                        >
+                          <div className="task-title-line">
+                            <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
+                              {item.title}
+                            </button>
+                            <AgentBadge item={item} compact />
+                          </div>
+                          <div className="backlog-meta matrix-card-footer">
+                            {owner ? (
+                              <span className="owner-chip">
+                                <AssignedFace itemId={item.id} member={owner} />
+                                <span>{owner.name}</span>
+                              </span>
+                            ) : (
+                              <span className="unassigned">Без исполнителя</span>
+                            )}
+                            <ReactionBar item={item} compact />
+                            <strong className="matrix-score">{scoreOf(item) ?? '—'}</strong>
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
+                </section>
+              ) : null}
+            </>
+          ) : null}
         </>
       ) : (
         <div className="empty-state">

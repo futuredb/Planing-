@@ -51,11 +51,30 @@ const mime = {
   '.ico': 'image/x-icon',
 }
 
-function readBody(req) {
+function readBody(req, maxBytes = 32 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = []
-    req.on('data', (chunk) => chunks.push(chunk))
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    let received = 0
+    let tooLarge = false
+    req.on('data', (chunk) => {
+      if (tooLarge) return
+      received += chunk.length
+      if (received > maxBytes) {
+        tooLarge = true
+        chunks.length = 0
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => {
+      if (tooLarge) {
+        const error = new Error('Request body is too large')
+        error.statusCode = 413
+        reject(error)
+        return
+      }
+      resolve(Buffer.concat(chunks).toString('utf8'))
+    })
     req.on('error', reject)
   })
 }
@@ -116,7 +135,16 @@ const server = http.createServer(async (req, res) => {
   if (url.startsWith('/api/state')) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
     if (req.method === 'GET') {
-      const state = await repository.read()
+      const requestUrl = new URL(url, 'http://127.0.0.1')
+      const since = requestUrl.searchParams.get('since')
+      const state = since === null
+        ? await repository.read()
+        : await repository.readIfVersion(Number(since))
+      if (!state) {
+        res.writeHead(304)
+        res.end()
+        return
+      }
       res.end(JSON.stringify(state))
       return
     }
@@ -137,8 +165,11 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         send(
           res,
-          400,
-          JSON.stringify({ error: error instanceof Error ? error.message : 'Invalid state' }),
+          Number(error?.statusCode) || 400,
+          JSON.stringify({
+            error: error instanceof Error ? error.message : 'Invalid state',
+            currentUpdatedAt: Number(error?.currentUpdatedAt) || undefined,
+          }),
           'application/json; charset=utf-8',
         )
       }

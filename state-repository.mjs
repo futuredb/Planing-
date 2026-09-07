@@ -23,6 +23,28 @@ function assertState(state) {
   }
 }
 
+function conflict(message, currentUpdatedAt) {
+  const error = new Error(message)
+  error.statusCode = 409
+  error.currentUpdatedAt = Number(currentUpdatedAt) || 0
+  return error
+}
+
+function assertSafeReplacement(previous, incoming) {
+  if (!previous?.items?.length) return
+  const incomingIds = new Set(incoming.items.map((item) => item.id))
+  const removedCount = previous.items.reduce(
+    (count, item) => count + (incomingIds.has(item.id) ? 0 : 1),
+    0,
+  )
+  if (removedCount > 5 || (incoming.items.length === 0 && previous.items.length > 0)) {
+    throw conflict(
+      `Защита Funban отклонила массовое удаление ${removedCount} задач`,
+      previous.updatedAt,
+    )
+  }
+}
+
 function nextVersion(previous, incoming) {
   return Math.max(
     Date.now(),
@@ -110,6 +132,7 @@ export function createStateRepository(stateFile) {
   const metadataFile = `${stateFile}.mcp.json`
   const auditFile = `${stateFile}.audit.jsonl`
   let queue = Promise.resolve()
+  let cachedState
 
   function exclusive(operation) {
     const run = queue.then(operation, operation)
@@ -121,9 +144,16 @@ export function createStateRepository(stateFile) {
   }
 
   function readState() {
+    if (cachedState !== undefined) return cachedState
     const state = readJson(stateFile, null)
     if (state) assertState(state)
+    cachedState = state
     return state
+  }
+
+  function writeState(state) {
+    writeAtomic(stateFile, JSON.stringify(state))
+    cachedState = state
   }
 
   function readMetadata() {
@@ -135,11 +165,27 @@ export function createStateRepository(stateFile) {
       return exclusive(() => readState())
     },
 
+    readIfVersion(version) {
+      return exclusive(() => {
+        const state = readState()
+        if (state && Number(state.updatedAt) === Number(version)) return null
+        return state
+      })
+    },
+
     replace(rawBody, baseVersion) {
       return exclusive(() => {
         const previous = readState()
         let incoming = JSON.parse(rawBody)
         assertState(incoming)
+
+        if (previous && Number(baseVersion) !== Number(previous.updatedAt)) {
+          throw conflict(
+            'Доска изменилась после загрузки этой вкладки. Обновите данные и повторите действие.',
+            previous.updatedAt,
+          )
+        }
+        assertSafeReplacement(previous, incoming)
 
         const metadata = readMetadata()
         incoming = previous ? preserveRelatedIds(previous, incoming) : incoming
@@ -160,7 +206,7 @@ export function createStateRepository(stateFile) {
         }
 
         incoming.updatedAt = nextVersion(previous, incoming)
-        writeAtomic(stateFile, JSON.stringify(incoming))
+        writeState(incoming)
         return { state: incoming, preservedIds }
       })
     },
@@ -179,7 +225,7 @@ export function createStateRepository(stateFile) {
         assertState(outcome.state)
         const version = nextVersion(state, outcome.state)
         outcome.state.updatedAt = version
-        writeAtomic(stateFile, JSON.stringify(outcome.state))
+        writeState(outcome.state)
 
         metadata.touchedAt ??= {}
         for (const id of outcome.touchedIds ?? []) metadata.touchedAt[id] = version

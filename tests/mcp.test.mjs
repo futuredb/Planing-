@@ -136,6 +136,9 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
 
   await waitForServer(rootUrl, processLogs)
 
+  const unchangedState = await fetch(`${rootUrl}api/state?since=${initialState.updatedAt}`)
+  assert.equal(unchangedState.status, 304)
+
   const unauthorized = await fetch(`${rootUrl}mcp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -275,9 +278,7 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
     },
     body: JSON.stringify(initialState),
   })
-  assert.equal(staleSave.status, 200)
-  const staleSaveResult = await staleSave.json()
-  assert.ok(staleSaveResult.preservedIds.includes(first.task.id))
+  assert.equal(staleSave.status, 409)
 
   const storedAfterStaleSave = await fetch(`${rootUrl}api/state`).then((response) =>
     response.json(),
@@ -292,9 +293,29 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(initialState),
   })
-  assert.equal(legacyTabSave.status, 200)
+  assert.equal(legacyTabSave.status, 409)
   const storedAfterLegacyTab = await fetch(`${rootUrl}api/state`).then((response) =>
     response.json(),
   )
   assert.ok(storedAfterLegacyTab.items.some((item) => item.id === first.task.id))
+
+  const destructiveSave = await fetch(`${rootUrl}api/state`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Funban-Base-Updated-At': String(storedAfterLegacyTab.updatedAt),
+    },
+    body: JSON.stringify({ ...storedAfterLegacyTab, items: [] }),
+  })
+  assert.equal(destructiveSave.status, 409)
+
+  const afterRejectedWipe = await fetch(`${rootUrl}api/state`).then((response) =>
+    response.json(),
+  )
+  assert.equal(afterRejectedWipe.items.length, storedAfterLegacyTab.items.length)
+
+  const changedState = await fetch(
+    `${rootUrl}api/state?since=${storedAfterLegacyTab.updatedAt}`,
+  )
+  assert.equal(changedState.status, 304)
 })

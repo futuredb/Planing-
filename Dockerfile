@@ -7,7 +7,7 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine
 WORKDIR /app
-ENV NODE_ENV=production PORT=3000 FUNBAN_DATA=/data/state.json
+ENV NODE_ENV=production PORT=3000 FUNBAN_DATA=/data/state.json NODE_OPTIONS=--max-old-space-size=384
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json

@@ -58,11 +58,12 @@ export async function loadState(): Promise<AppState> {
 
 export async function loadRemoteIfNewer(localUpdatedAt: number): Promise<AppState | null> {
   try {
-    const res = await fetch('/api/state')
+    const res = await fetch(`/api/state?since=${encodeURIComponent(localUpdatedAt)}`)
+    if (res.status === 304) return null
     if (!res.ok) return null
     const remote = await res.json()
     if (!remote || !Array.isArray(remote.items)) return null
-    if (!(Number(remote.updatedAt) > localUpdatedAt)) return null
+    if (Number(remote.updatedAt) === localUpdatedAt) return null
     return withPersona(migrate(remote as AppState))
   } catch {
     return null
@@ -73,6 +74,7 @@ export type SaveStateResult = {
   ok: boolean
   updatedAt: number
   preservedIds: string[]
+  conflict?: boolean
 }
 
 export async function saveState(
@@ -92,6 +94,15 @@ export async function saveState(
       headers,
       body: payload,
     })
+    if (response.status === 409) {
+      const result = (await response.json()) as { currentUpdatedAt?: number }
+      return {
+        ok: false,
+        conflict: true,
+        updatedAt: Number(result.currentUpdatedAt) || 0,
+        preservedIds: [],
+      }
+    }
     if (!response.ok) return null
     const result = (await response.json()) as Partial<SaveStateResult>
     return {

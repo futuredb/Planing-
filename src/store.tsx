@@ -84,6 +84,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const submittedAt = state.updatedAt
       void saveState(state, remoteVersion.current).then(async (result) => {
         if (!result) return
+        if (result.conflict) {
+          const remote = await loadRemoteIfNewer(-1)
+          if (!remote) return
+          remoteVersion.current = Number(remote.updatedAt) || 0
+          skipSave.current = true
+          setMe(remote.currentMemberId)
+          setState(remote)
+          return
+        }
         if (result.updatedAt) {
           remoteVersion.current = Math.max(remoteVersion.current, result.updatedAt)
         }

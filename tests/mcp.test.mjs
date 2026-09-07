@@ -136,6 +136,14 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
 
   await waitForServer(rootUrl, processLogs)
 
+  const initialResponse = await fetch(`${rootUrl}api/state`)
+  assert.equal(initialResponse.status, 200)
+  assert.equal(
+    Number(initialResponse.headers.get('content-length')),
+    Buffer.byteLength(JSON.stringify(initialState)),
+  )
+  assert.equal((await initialResponse.json()).items.length, initialState.items.length)
+
   const unchangedState = await fetch(`${rootUrl}api/state?since=${initialState.updatedAt}`)
   assert.equal(unchangedState.status, 304)
 

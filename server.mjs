@@ -36,6 +36,7 @@ const mcpHandler = createFunbanMcpHandler({
 const handleMcp = toNodeHandler(mcpHandler, {
   onerror: (error) => console.error('MCP request failed:', error.message),
 })
+let stateResponseCache = { updatedAt: null, body: null }
 
 const mime = {
   '.html': 'text/html; charset=utf-8',
@@ -82,6 +83,18 @@ function readBody(req, maxBytes = 32 * 1024 * 1024) {
 function send(res, status, body, type = 'text/plain; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type })
   res.end(body)
+}
+
+function serializedState(state) {
+  const updatedAt = Number(state?.updatedAt) || 0
+  if (stateResponseCache.body && stateResponseCache.updatedAt === updatedAt) {
+    return stateResponseCache.body
+  }
+  stateResponseCache = {
+    updatedAt,
+    body: Buffer.from(JSON.stringify(state)),
+  }
+  return stateResponseCache.body
 }
 
 function hasValidBearerToken(req) {
@@ -145,7 +158,7 @@ const server = http.createServer(async (req, res) => {
         res.end()
         return
       }
-      res.end(JSON.stringify(state))
+      res.end(serializedState(state))
       return
     }
     if (req.method === 'PUT') {

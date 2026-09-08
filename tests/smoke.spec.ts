@@ -176,6 +176,46 @@ test('инспектор редактирует оценку и закрывае
   await expect(dialog).toBeHidden()
 })
 
+test('поле комментария сохраняет фокус при фоновом обновлении доски', async ({ page }) => {
+  await page
+    .getByRole('button', { name: 'Автозаполнение реквизитов в онбординге', exact: true })
+    .click()
+  const dialog = page.getByRole('dialog', { name: /Задача:/ })
+  await dialog.getByRole('button', { name: /^Комментарии/ }).click()
+  const comment = dialog.getByPlaceholder('Написать комментарий…')
+
+  await comment.fill('Первая часть')
+  await expect(comment).toBeFocused()
+
+  const remote = await page.request.get('/api/state').then((response) => response.json())
+  remote.updatedAt = Date.now() + 10_000
+  remote.sprints = remote.sprints.map((sprint: { goal: string }) => ({
+    ...sprint,
+    goal: sprint.goal,
+  }))
+  const saved = await page.request.put('/api/state', { data: remote })
+  expect(saved.ok()).toBeTruthy()
+
+  await page.waitForTimeout(4_500)
+  await expect(comment).toBeFocused()
+  await expect(comment).toHaveValue('Первая часть')
+  await comment.pressSequentially(' и вторая', { delay: 35 })
+  await expect(comment).toHaveValue('Первая часть и вторая')
+
+  await dialog.getByRole('button', { name: 'Отправить', exact: true }).click()
+  await expect(dialog.getByText('Первая часть и вторая', { exact: true })).toBeVisible()
+  await expect(comment).toBeFocused()
+  await expect(comment).toHaveValue('')
+
+  await page.waitForTimeout(400)
+  const persisted = await page.request.get('/api/state').then((response) => response.json())
+  expect(
+    persisted.comments.some(
+      (entry: { text: string }) => entry.text === 'Первая часть и вторая',
+    ),
+  ).toBeTruthy()
+})
+
 test('идея быстро добавляется во входящие', async ({ page }) => {
   await page.getByRole('button', { name: 'Входящие', exact: true }).click()
   await page.getByLabel('Название идеи').fill('Проверить новый сценарий')

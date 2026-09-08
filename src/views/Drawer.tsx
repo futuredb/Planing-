@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { Avatar } from '../Avatar'
 import { memberDropBind } from '../member'
@@ -46,7 +46,7 @@ export function Drawer({
   const [tab, setTab] = useState<DrawerTab>('details')
   const [parts, setParts] = useState('')
   const [linkTargetId, setLinkTargetId] = useState('')
-  const [comment, setComment] = useState('')
+  const commentRef = useRef<HTMLTextAreaElement>(null)
   const [preview, setPreview] = useState<Attachment | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -60,6 +60,10 @@ export function Drawer({
 
   useEffect(() => {
     document.body.classList.add('modal-open')
+    return () => document.body.classList.remove('modal-open')
+  }, [])
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (preview) setPreview(null)
@@ -67,17 +71,17 @@ export function Drawer({
       else onClose()
     }
     window.addEventListener('keydown', onKey)
-    return () => {
-      document.body.classList.remove('modal-open')
-      window.removeEventListener('keydown', onKey)
-    }
+    return () => window.removeEventListener('keydown', onKey)
   }, [confirmDelete, onClose, preview])
 
   function sendComment(event: FormEvent) {
     event.preventDefault()
-    if (!comment.trim()) return
-    addComment(item.id, comment)
-    setComment('')
+    const field = commentRef.current
+    const text = field?.value.trim()
+    if (!field || !text) return
+    addComment(item.id, text)
+    field.value = ''
+    field.focus()
   }
 
   function split() {
@@ -434,9 +438,8 @@ export function Drawer({
                 )}
                 <form onSubmit={sendComment} className="comment-form">
                   <textarea
+                    ref={commentRef}
                     rows={3}
-                    value={comment}
-                    onChange={(event) => setComment(event.target.value)}
                     placeholder="Написать комментарий…"
                   />
                   <button type="submit" className="primary-button">Отправить</button>

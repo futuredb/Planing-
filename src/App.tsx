@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Avatar } from './Avatar'
 import { sprintName, weekLabel } from './dates'
 import { RoleChip } from './RoleChip'
@@ -41,6 +41,7 @@ export default function App() {
     () => state.items.find((item) => item.id === openId) ?? null,
     [openId, state.items],
   )
+  const closeDrawer = useCallback(() => setOpenId(null), [])
 
   function navigate(next: ViewId) {
     setView(next)
@@ -156,7 +157,7 @@ export default function App() {
       ) : null}
 
       {openItem ? (
-        <Drawer key={openItem.id} item={openItem} onOpen={setOpenId} onClose={() => setOpenId(null)} />
+        <Drawer key={openItem.id} item={openItem} onOpen={setOpenId} onClose={closeDrawer} />
       ) : null}
 
       {confirmRoles ? (

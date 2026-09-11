@@ -133,6 +133,54 @@ test('задача двигается по спринту и реакция со
   await expect(movedCard.getByLabel(/звезда, реакций:/)).toBeVisible()
 })
 
+test('перемещение карточки не откатывается при конкурентном обновлении', async ({ page }, testInfo) => {
+  const remote = await page.request.get('/api/state').then((response) => response.json())
+  remote.updatedAt = Date.now() + 10_000
+  remote.sprints = remote.sprints.map((sprint: { goal: string }, index: number) =>
+    index === 0 ? { ...sprint, goal: `${sprint.goal} ` } : sprint,
+  )
+  const externalSave = await page.request.put('/api/state', { data: remote })
+  expect(externalSave.ok()).toBeTruthy()
+
+  let rejectNextSave = true
+  await page.route('**/api/state', async (route) => {
+    if (rejectNextSave && route.request().method() === 'PUT') {
+      rejectNextSave = false
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ currentUpdatedAt: remote.updatedAt }),
+      })
+      return
+    }
+    await route.continue()
+  })
+
+  const card = page.locator('.task-card').filter({ hasText: 'Автозаполнение реквизитов' })
+  if (testInfo.project.name === 'mobile') {
+    await card.getByLabel('Действия с задачей').click()
+    await page.getByRole('button', { name: 'В «В работе»', exact: true }).click()
+  } else {
+    await card.dragTo(page.locator('[data-lane="doing"]'))
+  }
+  await expect(page.locator('[data-lane="doing"]')).toContainText('Автозаполнение реквизитов')
+
+  await expect.poll(async () => {
+    const saved = await page.request.get('/api/state').then((response) => response.json())
+    return saved.items.find(
+      (item: { title: string }) => item.title === 'Автозаполнение реквизитов в онбординге',
+    )?.lane
+  }).toBe('doing')
+  const persisted = await page.request.get('/api/state').then((response) => response.json())
+  expect(persisted.sprints[0].goal).toBe(remote.sprints[0].goal)
+  expect(rejectNextSave).toBeFalsy()
+  await expect(page.locator('[data-lane="doing"]')).toContainText('Автозаполнение реквизитов')
+  expect(consoleErrors.get(page)).toEqual([
+    'Failed to load resource: the server responded with a status of 409 (Conflict)',
+  ])
+  consoleErrors.set(page, [])
+})
+
 test('роли видны в шапке, а аватар назначает исполнителя перетаскиванием', async ({ page }) => {
   const rolesDock = page.getByLabel('Роли команды на выбранной неделе')
   const roleChips = rolesDock.locator('.role-chip')

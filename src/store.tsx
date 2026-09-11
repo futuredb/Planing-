@@ -60,11 +60,71 @@ function bump(state: AppState): AppState {
   return { ...state, updatedAt: Date.now() }
 }
 
+type PendingMove = {
+  lane: Lane
+  sprintId: string | null | undefined
+  archivedAt: number | null
+  sequence: number
+}
+
+class MoveTracker {
+  readonly pending = new Map<string, PendingMove>()
+  private sequence = 0
+
+  track(id: string, lane: Lane, sprintId?: string | null) {
+    this.pending.set(id, {
+      lane,
+      sprintId,
+      archivedAt: lane === 'archive' ? Date.now() : null,
+      sequence: ++this.sequence,
+    })
+  }
+
+  acknowledge(id: string, sequence: number) {
+    if (this.pending.get(id)?.sequence === sequence) this.pending.delete(id)
+  }
+
+  clearApplied(state: AppState) {
+    for (const [itemId, move] of this.pending) {
+      if (moveMatches(state.items.find((item) => item.id === itemId), move)) {
+        this.pending.delete(itemId)
+      }
+    }
+  }
+}
+
+function moveMatches(item: Item | undefined, move: PendingMove) {
+  if (!item || item.lane !== move.lane) return false
+  return move.sprintId === undefined || item.sprintId === move.sprintId
+}
+
+function reapplyPendingMoves(state: AppState, moves: Map<string, PendingMove>) {
+  let changed = false
+  const items = state.items.map((item) => {
+    const move = moves.get(item.id)
+    if (!move || moveMatches(item, move)) return item
+    changed = true
+    return {
+      ...item,
+      lane: move.lane,
+      sprintId: move.sprintId === undefined ? item.sprintId : move.sprintId,
+      archivedAt: move.archivedAt,
+    }
+  })
+  if (!changed) return state
+  return {
+    ...state,
+    items,
+    updatedAt: Math.max(Date.now(), Number(state.updatedAt) + 1),
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null)
   const [me, setMe] = useState<string | null>(null)
   const skipSave = useRef(true)
   const remoteVersion = useRef(0)
+  const moveTracker = useMemo(() => new MoveTracker(), [])
 
   useEffect(() => {
     loadState().then((next) => {
@@ -82,19 +142,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     const t = setTimeout(() => {
       const submittedAt = state.updatedAt
+      const submittedMoves = new Map(
+        [...moveTracker.pending].filter(([itemId, move]) =>
+          moveMatches(state.items.find((item) => item.id === itemId), move),
+        ),
+      )
       void saveState(state, remoteVersion.current).then(async (result) => {
         if (!result) return
         if (result.conflict) {
           const remote = await loadRemoteIfNewer(-1)
           if (!remote) return
           remoteVersion.current = Number(remote.updatedAt) || 0
-          skipSave.current = true
           setMe(remote.currentMemberId)
-          setState(remote)
+          const rebased = reapplyPendingMoves(remote, moveTracker.pending)
+          if (rebased === remote) {
+            moveTracker.clearApplied(remote)
+            skipSave.current = true
+          } else {
+            skipSave.current = false
+          }
+          setState(rebased)
           return
         }
         if (result.updatedAt) {
           remoteVersion.current = Math.max(remoteVersion.current, result.updatedAt)
+        }
+        for (const [itemId, move] of submittedMoves) {
+          moveTracker.acknowledge(itemId, move.sequence)
         }
         if (!result.preservedIds.length) return
 
@@ -134,20 +208,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       })
     }, 250)
     return () => clearTimeout(t)
-  }, [state])
+  }, [state, moveTracker])
 
   useEffect(() => {
     const t = setInterval(() => {
       void loadRemoteIfNewer(state?.updatedAt ?? 0).then((remote) => {
         if (!remote) return
         remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)
-        skipSave.current = true
         setMe(remote.currentMemberId)
-        setState(remote)
+        const rebased = reapplyPendingMoves(remote, moveTracker.pending)
+        skipSave.current = rebased === remote
+        setState(rebased)
       })
     }, 4000)
     return () => clearInterval(t)
-  }, [state?.updatedAt])
+  }, [state?.updatedAt, moveTracker])
 
   const mutate = useCallback((fn: (prev: AppState) => AppState) => {
     setState((prev) => (prev ? bump(fn(prev)) : prev))
@@ -279,7 +354,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             })),
           comments: s.comments.filter((c) => c.itemId !== id),
         })),
-      moveItem: (id, lane, sprintId) =>
+      moveItem: (id, lane, sprintId) => {
+        moveTracker.track(id, lane, sprintId)
         mutate((s) => ({
           ...s,
           items: s.items.map((it) =>
@@ -292,7 +368,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 }
               : it,
           ),
-        })),
+        }))
+      },
       pullToSprint: (id) =>
         mutate((s) => ({
           ...s,
@@ -538,7 +615,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         })),
       scoreOf: (item) => itemScore(item, view.criteria),
     }
-  }, [mutate, state, me, weekId, liveWeek])
+  }, [mutate, state, me, weekId, liveWeek, moveTracker])
 
   if (!api) {
     return <div className="boot">Собираем доску…</div>

@@ -57,7 +57,7 @@ export type Store = {
 }
 
 function bump(state: AppState): AppState {
-  return { ...state, updatedAt: Date.now() }
+  return { ...state, updatedAt: Math.max(Date.now(), Number(state.updatedAt) + 1) }
 }
 
 type PendingMove = {
@@ -122,13 +122,14 @@ function reapplyPendingMoves(state: AppState, moves: Map<string, PendingMove>) {
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null)
   const [me, setMe] = useState<string | null>(null)
-  const skipSave = useRef(true)
+  const skipSaveVersion = useRef<number | null>(null)
   const remoteVersion = useRef(0)
   const moveTracker = useMemo(() => new MoveTracker(), [])
 
   useEffect(() => {
     loadState().then((next) => {
       remoteVersion.current = Number(next.updatedAt) || 0
+      skipSaveVersion.current = Number(next.updatedAt) || 0
       setMe(next.currentMemberId)
       setState(next)
     })
@@ -136,8 +137,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!state) return
-    if (skipSave.current) {
-      skipSave.current = false
+    if (skipSaveVersion.current === Number(state.updatedAt)) {
+      skipSaveVersion.current = null
       return
     }
     const t = setTimeout(() => {
@@ -157,9 +158,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const rebased = reapplyPendingMoves(remote, moveTracker.pending)
           if (rebased === remote) {
             moveTracker.clearApplied(remote)
-            skipSave.current = true
-          } else {
-            skipSave.current = false
+            skipSaveVersion.current = Number(remote.updatedAt) || 0
           }
           setState(rebased)
           return
@@ -180,7 +179,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setState((current) => {
           if (!current) return current
           if (current.updatedAt === submittedAt) {
-            skipSave.current = true
+            skipSaveVersion.current = Number(remote.updatedAt) || 0
             return remote
           }
 
@@ -217,7 +216,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)
         setMe(remote.currentMemberId)
         const rebased = reapplyPendingMoves(remote, moveTracker.pending)
-        skipSave.current = rebased === remote
+        if (rebased === remote) {
+          skipSaveVersion.current = Number(remote.updatedAt) || 0
+        }
         setState(rebased)
       })
     }, 4000)

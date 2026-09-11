@@ -1,5 +1,6 @@
 import { AssignedFace } from '../AssignedFace'
 import { AgentBadge } from '../AgentBadge'
+import { AuthorMeta } from '../AuthorMeta'
 import { ReactionBar } from '../StickerBar'
 import { useStore } from '../store-context'
 import type { Item } from '../types'
@@ -69,6 +70,7 @@ function ArchiveRow({
               <span>{owner.name}</span>
             </span>
           ) : null}
+          <AuthorMeta item={item} members={state.members} compact />
           <ReactionBar item={item} compact />
         </div>
       </div>

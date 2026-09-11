@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { Avatar } from '../Avatar'
+import { AuthorMeta } from '../AuthorMeta'
 import { memberDropBind } from '../member'
 import { ReactionBar } from '../StickerBar'
 import { filesToAttachments } from '../storage'
@@ -193,6 +194,7 @@ export function Drawer({
                   onChange={(event) => updateItem(item.id, { title: event.target.value })}
                   aria-label="Название задачи"
                 />
+                <AuthorMeta item={item} members={state.members} />
                 <textarea
                   className="drawer-description"
                   rows={6}

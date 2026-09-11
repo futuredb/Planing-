@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
+import { AuthorMeta } from '../AuthorMeta'
 import { cardDropBind } from '../card-drop'
 import { ReactionBar } from '../StickerBar'
 import { useStore } from '../store-context'
@@ -311,14 +312,17 @@ function SprintCard({
       </div>
       {item.body ? <p className="task-preview">{item.body}</p> : null}
       <div className="task-card-bottom">
-        {owner ? (
-          <div className="owner-chip">
-            <AssignedFace itemId={item.id} member={owner} />
-            <span>{owner.name}</span>
-          </div>
-        ) : (
-          <span className="unassigned">Без исполнителя</span>
-        )}
+        <div className="task-people">
+          {owner ? (
+            <div className="owner-chip">
+              <AssignedFace itemId={item.id} member={owner} />
+              <span>{owner.name}</span>
+            </div>
+          ) : (
+            <span className="unassigned">Без исполнителя</span>
+          )}
+          <AuthorMeta item={item} members={state.members} compact />
+        </div>
         <ReactionBar item={item} compact />
       </div>
     </article>

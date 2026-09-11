@@ -1,6 +1,7 @@
 import { useCallback, useState, type ClipboardEvent, type DragEvent, type FormEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
+import { AuthorMeta } from '../AuthorMeta'
 import { cardDropBind } from '../card-drop'
 import { readMemberDrop } from '../member'
 import { RoleChip } from '../RoleChip'
@@ -179,10 +180,10 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
                   {item.body ? <p>{item.body}</p> : null}
                   <div className="inbox-meta">
                     {author ? (
-                      <span className="author-meta">
-                        Добавил {author.name}
+                      <>
+                        <AuthorMeta item={item} members={state.members} />
                         <RoleChip roleId={state.roles?.[author.id]} />
-                      </span>
+                      </>
                     ) : null}
                     {item.attachments.length ? <span>{item.attachments.length} изобр.</span> : null}
                     <ReactionBar item={item} compact />

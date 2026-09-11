@@ -1145,6 +1145,12 @@ textarea:focus {
   margin-top: 12px;
 }
 
+.task-people {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
 .owner-chip {
   display: inline-flex;
   min-width: 0;
@@ -1920,7 +1926,16 @@ textarea:focus {
 .author-meta {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.author-meta.compact {
+  font-size: 10px;
 }
 
 .inbox-item-actions {

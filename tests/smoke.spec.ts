@@ -36,6 +36,17 @@ test('логотип продукта загружается в навигаци
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/funban-logo.png')
 })
 
+test('автор задачи виден на карточке и в инспекторе', async ({ page }) => {
+  const card = page.locator('.task-card').filter({ hasText: 'Автозаполнение реквизитов' })
+  await expect(card.getByLabel('Автор задачи: Лиля')).toBeVisible()
+
+  await card
+    .getByRole('button', { name: 'Автозаполнение реквизитов в онбординге', exact: true })
+    .click()
+  const dialog = page.getByRole('dialog', { name: /Задача:/ })
+  await expect(dialog.getByLabel('Автор задачи: Лиля')).toBeVisible()
+})
+
 test('основные разделы не создают глобальный горизонтальный скролл', async ({ page }) => {
   await expectNoPageOverflow(page)
 
@@ -232,7 +243,7 @@ test('идея быстро добавляется во входящие', async
   await page.getByRole('button', { name: 'Добавить', exact: true }).click()
   const ideaRow = page.locator('.inbox-list > li').filter({ hasText: 'Проверить новый сценарий' })
   await expect(ideaRow.getByRole('button', { name: 'Проверить новый сценарий', exact: true })).toBeVisible()
-  await expect(ideaRow.locator('.author-meta')).toContainText('Добавил Ваня')
+  await expect(ideaRow.getByLabel('Автор задачи: Ваня')).toBeVisible()
   await page.waitForTimeout(400)
 
   const saved = await page.request.get('/api/state').then((response) => response.json())

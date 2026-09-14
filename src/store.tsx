@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { mondayOf, nextMonday, shiftMonday, uid } from './dates'
-import { itemScore, loadRemoteIfNewer, loadState, saveMe, saveState } from './storage'
+import { itemScore, loadRemoteIfNewer, loadState, moveItemRemote, saveMe, saveState } from './storage'
 import type { AppState, Attachment, Criterion, Item, Lane } from './types'
 import type { StickerId } from './stickers'
 import { defaultRoles, rollRoles } from './roles'
@@ -72,12 +72,14 @@ class MoveTracker {
   private sequence = 0
 
   track(id: string, lane: Lane, sprintId?: string | null) {
-    this.pending.set(id, {
+    const move = {
       lane,
       sprintId,
       archivedAt: lane === 'archive' ? Date.now() : null,
       sequence: ++this.sequence,
-    })
+    }
+    this.pending.set(id, move)
+    return move
   }
 
   acknowledge(id: string, sequence: number) {
@@ -124,6 +126,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<string | null>(null)
   const skipSaveVersion = useRef<number | null>(null)
   const remoteVersion = useRef(0)
+  const fullSavePending = useRef(false)
+  const fullSaveSequence = useRef(0)
   const moveTracker = useMemo(() => new MoveTracker(), [])
 
   useEffect(() => {
@@ -143,6 +147,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     const t = setTimeout(() => {
       const submittedAt = state.updatedAt
+      const submittedSequence = fullSaveSequence.current
       const submittedMoves = new Map(
         [...moveTracker.pending].filter(([itemId, move]) =>
           moveMatches(state.items.find((item) => item.id === itemId), move),
@@ -153,6 +158,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (result.conflict) {
           const remote = await loadRemoteIfNewer(-1)
           if (!remote) return
+          if (fullSaveSequence.current === submittedSequence) fullSavePending.current = false
           remoteVersion.current = Number(remote.updatedAt) || 0
           setMe(remote.currentMemberId)
           const rebased = reapplyPendingMoves(remote, moveTracker.pending)
@@ -166,6 +172,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (result.updatedAt) {
           remoteVersion.current = Math.max(remoteVersion.current, result.updatedAt)
         }
+        if (fullSaveSequence.current === submittedSequence) fullSavePending.current = false
         for (const [itemId, move] of submittedMoves) {
           moveTracker.acknowledge(itemId, move.sequence)
         }
@@ -226,8 +233,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [state?.updatedAt, moveTracker])
 
   const mutate = useCallback((fn: (prev: AppState) => AppState) => {
+    fullSavePending.current = true
+    fullSaveSequence.current += 1
     setState((prev) => (prev ? bump(fn(prev)) : prev))
   }, [])
+
+  const mutateMove = useCallback((fn: (prev: AppState) => AppState) => {
+    const atomicOnly = !fullSavePending.current
+    setState((prev) => {
+      if (!prev) return prev
+      const next = bump(fn(prev))
+      if (atomicOnly) skipSaveVersion.current = next.updatedAt
+      return next
+    })
+    return atomicOnly
+  }, [])
+
+  const persistMove = useCallback(
+    (
+      id: string,
+      lane: Lane,
+      sprintId: string | null | undefined,
+      sequence: number,
+      atomicOnly: boolean,
+    ) => {
+      void moveItemRemote(id, lane, sprintId).then((result) => {
+        if (!result?.ok) {
+          if (atomicOnly) {
+            fullSavePending.current = true
+            fullSaveSequence.current += 1
+            setState((current) => (current ? bump(current) : current))
+          }
+          return
+        }
+        moveTracker.acknowledge(id, sequence)
+        if (!atomicOnly) return
+        void loadRemoteIfNewer(-1).then((remote) => {
+          if (!remote || fullSavePending.current) return
+          remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)
+          moveTracker.clearApplied(remote)
+          skipSaveVersion.current = Number(remote.updatedAt) || 0
+          setMe(remote.currentMemberId)
+          setState(remote)
+        })
+      })
+    },
+    [moveTracker],
+  )
 
   const [weekId, setWeekId] = useState(mondayOf)
   const liveWeek = weekId === mondayOf()
@@ -356,8 +408,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           comments: s.comments.filter((c) => c.itemId !== id),
         })),
       moveItem: (id, lane, sprintId) => {
-        moveTracker.track(id, lane, sprintId)
-        mutate((s) => ({
+        const move = moveTracker.track(id, lane, sprintId)
+        const atomicOnly = mutateMove((s) => ({
           ...s,
           items: s.items.map((it) =>
             it.id === id
@@ -370,17 +422,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               : it,
           ),
         }))
+        persistMove(id, lane, sprintId, move.sequence, atomicOnly)
       },
-      pullToSprint: (id) =>
-        mutate((s) => ({
+      pullToSprint: (id) => {
+        const move = moveTracker.track(id, 'todo', weekId)
+        const atomicOnly = mutateMove((s) => ({
           ...s,
           items: s.items.map((it) =>
             it.id === id ? { ...it, lane: 'todo', sprintId: weekId, archivedAt: null } : it,
           ),
-        })),
-      carryOver: (id) =>
-        mutate((s) => {
-          const next = nextMonday(weekId)
+        }))
+        persistMove(id, 'todo', weekId, move.sequence, atomicOnly)
+      },
+      carryOver: (id) => {
+        const next = nextMonday(weekId)
+        const move = moveTracker.track(id, 'todo', next)
+        const atomicOnly = mutateMove((s) => {
           const withSprint = ensureNext(s)
           return {
             ...withSprint,
@@ -388,7 +445,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               it.id === id ? { ...it, lane: 'todo', sprintId: next, archivedAt: null } : it,
             ),
           }
-        }),
+        })
+        persistMove(id, 'todo', next, move.sequence, atomicOnly)
+      },
       decompose: (id, titles) =>
         mutate((s) => {
           const parent = s.items.find((it) => it.id === id)
@@ -616,8 +675,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         })),
       scoreOf: (item) => itemScore(item, view.criteria),
     }
-  }, [mutate, state, me, weekId, liveWeek, moveTracker])
+  }, [mutate, mutateMove, persistMove, state, me, weekId, liveWeek, moveTracker])
 
+  // Store callbacks touch synchronization refs only when invoked by an event.
+  // oxlint-disable-next-line react/refs
   if (!api) {
     return <div className="boot">Собираем доску…</div>
   }

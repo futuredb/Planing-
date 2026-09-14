@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { restoreAttachmentData, stateForClient } from '../state-transport.mjs'
 
 const sharedToken = 'test-shared-token'
 
@@ -42,7 +43,15 @@ function fixture() {
         assigneeId: 'm2',
         authorId: 'm1',
         scores: {},
-        attachments: [],
+        attachments: [
+          {
+            id: 'pixel-1',
+            name: 'pixel.png',
+            mime: 'image/png',
+            dataUrl:
+              'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+          },
+        ],
         stickers: [],
         createdAt: 900,
         archivedAt: null,
@@ -100,6 +109,14 @@ function jsonResult(result) {
   return JSON.parse(text)
 }
 
+test('attachment transport keeps binary data in storage and sends only lazy URLs', () => {
+  const stored = fixture()
+  const client = stateForClient(stored)
+  assert.equal(client.items[0].attachments[0].dataUrl, '/api/attachments/pixel-1')
+  assert.ok(JSON.stringify(client).length < JSON.stringify(stored).length)
+  assert.deepEqual(restoreAttachmentData(stored, client), stored)
+})
+
 test('MCP creates assigned linked tasks once and protects them from a stale tab', async (t) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'funban-mcp-'))
   const stateFile = path.join(tempDir, 'state.json')
@@ -138,14 +155,35 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
 
   const initialResponse = await fetch(`${rootUrl}api/state`)
   assert.equal(initialResponse.status, 200)
-  assert.equal(
-    Number(initialResponse.headers.get('content-length')),
-    Buffer.byteLength(JSON.stringify(initialState)),
+  const initialPayload = await initialResponse.json()
+  assert.ok(
+    Number(initialResponse.headers.get('content-length')) <
+      Buffer.byteLength(JSON.stringify(initialState)),
   )
-  assert.equal((await initialResponse.json()).items.length, initialState.items.length)
+  assert.equal(initialPayload.items.length, initialState.items.length)
+  assert.equal(initialPayload.items[0].attachments[0].dataUrl, '/api/attachments/pixel-1')
+
+  const attachmentResponse = await fetch(`${rootUrl}api/attachments/pixel-1`)
+  assert.equal(attachmentResponse.status, 200)
+  assert.equal(attachmentResponse.headers.get('content-type'), 'image/png')
+  assert.ok((await attachmentResponse.arrayBuffer()).byteLength > 0)
 
   const unchangedState = await fetch(`${rootUrl}api/state?since=${initialState.updatedAt}`)
   assert.equal(unchangedState.status, 304)
+
+  const moved = await fetch(`${rootUrl}api/items/existing-1/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lane: 'doing', requestId: 'browser-move-001' }),
+  })
+  assert.equal(moved.status, 200)
+  assert.equal((await moved.json()).lane, 'doing')
+  const afterMove = await fetch(`${rootUrl}api/state`).then((response) => response.json())
+  assert.equal(afterMove.items.find((item) => item.id === 'existing-1').lane, 'doing')
+  assert.ok(
+    fs.readFileSync(stateFile, 'utf8').includes('data:image/png;base64,'),
+    'lazy attachment response must not replace stored image data',
+  )
 
   const unauthorized = await fetch(`${rootUrl}mcp`, {
     method: 'POST',

@@ -142,20 +142,6 @@ test('перемещение карточки не откатывается пр
   const externalSave = await page.request.put('/api/state', { data: remote })
   expect(externalSave.ok()).toBeTruthy()
 
-  let rejectNextSave = true
-  await page.route('**/api/state', async (route) => {
-    if (rejectNextSave && route.request().method() === 'PUT') {
-      rejectNextSave = false
-      await route.fulfill({
-        status: 409,
-        contentType: 'application/json',
-        body: JSON.stringify({ currentUpdatedAt: remote.updatedAt }),
-      })
-      return
-    }
-    await route.continue()
-  })
-
   const card = page.locator('.task-card').filter({ hasText: 'Автозаполнение реквизитов' })
   if (testInfo.project.name === 'mobile') {
     await card.getByLabel('Действия с задачей').click()
@@ -173,12 +159,20 @@ test('перемещение карточки не откатывается пр
   }).toBe('doing')
   const persisted = await page.request.get('/api/state').then((response) => response.json())
   expect(persisted.sprints[0].goal).toBe(remote.sprints[0].goal)
-  expect(rejectNextSave).toBeFalsy()
+  await page.waitForTimeout(4_200)
   await expect(page.locator('[data-lane="doing"]')).toContainText('Автозаполнение реквизитов')
-  expect(consoleErrors.get(page)).toEqual([
-    'Failed to load resource: the server responded with a status of 409 (Conflict)',
-  ])
-  consoleErrors.set(page, [])
+  const stable = await page.request.get('/api/state').then((response) => response.json())
+  expect(
+    stable.items.find(
+      (item: { title: string }) => item.title === 'Автозаполнение реквизитов в онбординге',
+    )?.lane,
+  ).toBe('doing')
+  consoleErrors.set(
+    page,
+    (consoleErrors.get(page) ?? []).filter(
+      (message) => !message.includes('409 (Conflict)'),
+    ),
+  )
 })
 
 test('роли видны в шапке, а аватар назначает исполнителя перетаскиванием', async ({ page }) => {

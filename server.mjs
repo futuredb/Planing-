@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { hostHeaderValidation, originValidation, toNodeHandler } from '@modelcontextprotocol/node'
 import { createFunbanMcpHandler } from './funban-mcp.mjs'
 import { createStateRepository } from './state-repository.mjs'
+import { decodeImageDataUrl, findAttachment, stateForClient } from './state-transport.mjs'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const dist = path.join(root, 'dist')
@@ -92,7 +93,7 @@ function serializedState(state) {
   }
   stateResponseCache = {
     updatedAt,
-    body: Buffer.from(JSON.stringify(state)),
+    body: Buffer.from(JSON.stringify(stateForClient(state))),
   }
   return stateResponseCache.body
 }
@@ -142,6 +143,84 @@ const server = http.createServer(async (req, res) => {
       return
     }
     send(res, 200, JSON.stringify({ ok: true }), 'application/json; charset=utf-8')
+    return
+  }
+
+  if (url.startsWith('/api/attachments/')) {
+    if (req.method !== 'GET') {
+      send(res, 405, 'Method Not Allowed')
+      return
+    }
+    try {
+      const requestUrl = new URL(url, 'http://127.0.0.1')
+      const id = decodeURIComponent(requestUrl.pathname.slice('/api/attachments/'.length))
+      const attachment = findAttachment(await repository.read(), id)
+      const decoded = attachment ? decodeImageDataUrl(attachment.dataUrl) : null
+      if (!decoded) {
+        send(res, 404, 'Attachment not found')
+        return
+      }
+      res.setHeader('X-Content-Type-Options', 'nosniff')
+      res.setHeader('Cache-Control', 'private, max-age=31536000, immutable')
+      send(res, 200, decoded.body, decoded.mime)
+    } catch {
+      send(res, 400, 'Bad attachment id')
+    }
+    return
+  }
+
+  const moveMatch = new URL(url, 'http://127.0.0.1').pathname.match(/^\/api\/items\/([^/]+)\/move$/)
+  if (moveMatch) {
+    if (req.method !== 'POST') {
+      send(res, 405, 'Method Not Allowed')
+      return
+    }
+    try {
+      const itemId = decodeURIComponent(moveMatch[1])
+      const input = JSON.parse(await readBody(req, 8 * 1024))
+      const lanes = new Set(['inbox', 'backlog', 'todo', 'doing', 'done', 'archive'])
+      if (!lanes.has(input.lane)) throw new Error('Некорректный статус задачи')
+      if (input.sprintId !== undefined && input.sprintId !== null && typeof input.sprintId !== 'string') {
+        throw new Error('Некорректный спринт задачи')
+      }
+      const result = await repository.mutate(
+        { action: 'move_task', requestId: typeof input.requestId === 'string' ? input.requestId : null },
+        (state) => {
+          const item = state.items.find((candidate) => candidate.id === itemId)
+          if (!item) {
+            const error = new Error('Задача не найдена')
+            error.statusCode = 404
+            throw error
+          }
+          const sprintId = input.sprintId === undefined ? item.sprintId : input.sprintId
+          return {
+            state: {
+              ...state,
+              items: state.items.map((candidate) =>
+                candidate.id === itemId
+                  ? {
+                      ...candidate,
+                      lane: input.lane,
+                      sprintId,
+                      archivedAt: input.lane === 'archive' ? Date.now() : null,
+                    }
+                  : candidate,
+              ),
+            },
+            touchedIds: [itemId],
+            result: { ok: true, itemId, lane: input.lane, sprintId },
+          }
+        },
+      )
+      send(res, 200, JSON.stringify(result), 'application/json; charset=utf-8')
+    } catch (error) {
+      send(
+        res,
+        Number(error?.statusCode) || 400,
+        JSON.stringify({ error: error instanceof Error ? error.message : 'Invalid move' }),
+        'application/json; charset=utf-8',
+      )
+    }
     return
   }
 

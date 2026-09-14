@@ -1,5 +1,5 @@
 import { DEFAULT_AVATARS } from './member'
-import type { AppState, Criterion, Item, Member } from './types'
+import type { AppState, Criterion, Item, Lane, Member } from './types'
 import { createEmpty, DEFAULT_CRITERIA, isLegacyCriteria, TEAM_MEMBERS } from './seed'
 import { mondayOf } from './dates'
 import type { RoleMap } from './roles'
@@ -112,6 +112,29 @@ export async function saveState(
     }
   } catch {
     /* offline / preview without API */
+    return null
+  }
+}
+
+export async function moveItemRemote(
+  itemId: string,
+  lane: Lane,
+  sprintId?: string | null,
+): Promise<{ ok: boolean; updatedAt: number } | null> {
+  try {
+    const response = await fetch(`/api/items/${encodeURIComponent(itemId)}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lane,
+        ...(sprintId === undefined ? {} : { sprintId }),
+        requestId: crypto.randomUUID(),
+      }),
+    })
+    if (!response.ok) return null
+    const result = (await response.json()) as { ok?: boolean; updatedAt?: number }
+    return { ok: result.ok === true, updatedAt: Number(result.updatedAt) || 0 }
+  } catch {
     return null
   }
 }

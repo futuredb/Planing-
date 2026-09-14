@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { restoreAttachmentData } from './state-transport.mjs'
 
 function readJson(file, fallback) {
   if (!fs.existsSync(file)) return fallback
@@ -185,6 +186,7 @@ export function createStateRepository(stateFile) {
             previous.updatedAt,
           )
         }
+        incoming = previous ? restoreAttachmentData(previous, incoming) : incoming
         assertSafeReplacement(previous, incoming)
 
         const metadata = readMetadata()

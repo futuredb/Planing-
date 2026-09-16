@@ -3,7 +3,7 @@ import type { AppState, Criterion, Item, Lane, Member } from './types'
 import { createEmpty, DEFAULT_CRITERIA, isLegacyCriteria, TEAM_MEMBERS } from './seed'
 import { mondayOf } from './dates'
 import type { RoleMap } from './roles'
-import { defaultRoles } from './roles'
+import { defaultRoles, sanitizeRoles } from './roles'
 
 const ME_KEY = 'weekboard-me'
 
@@ -158,12 +158,12 @@ function migrateMembers(state: AppState): Member[] {
 }
 
 function pickRoles(state: AppState, memberIds: string[]): RoleMap {
-  if (state.roles && Object.keys(state.roles).length) return state.roles
+  if (state.roles && Object.keys(state.roles).length) return sanitizeRoles(state.roles, memberIds)
   const week = mondayOf()
   const fromWeek = state.sprints?.find((s) => s.id === week)?.roles
-  if (fromWeek && Object.keys(fromWeek).length) return fromWeek
+  if (fromWeek && Object.keys(fromWeek).length) return sanitizeRoles(fromWeek, memberIds)
   const fromAny = state.sprints?.find((s) => s.roles && Object.keys(s.roles).length)?.roles
-  if (fromAny) return fromAny
+  if (fromAny) return sanitizeRoles(fromAny, memberIds)
   return defaultRoles('crew', memberIds)
 }
 
@@ -198,7 +198,9 @@ function migrate(state: AppState): AppState {
           lane === 'archive' ? (it.archivedAt ?? it.createdAt ?? Date.now()) : (it.archivedAt ?? null),
       }
     }),
-    sprints: state.sprints ?? [],
+    sprints: (state.sprints ?? []).map((sprint) =>
+      sprint.roles ? { ...sprint, roles: sanitizeRoles(sprint.roles, memberIds) } : sprint,
+    ),
     comments: state.comments ?? [],
     criteria: isLegacyCriteria(state.criteria)
       ? DEFAULT_CRITERIA.map((c) => ({ ...c }))

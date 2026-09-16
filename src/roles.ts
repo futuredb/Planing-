@@ -1,39 +1,33 @@
 export const WEEK_ROLES = [
   {
+    id: 'maker',
+    name: 'Творец',
+    tag: 'творец',
+    hint: 'Ищет UX/UI-улучшения в продуктах Дейли Банкинга. Спрашивает у продуктовых команд и в исследованиях.',
+  },
+  {
+    id: 'dreamer',
+    name: 'Фантазер',
+    tag: 'фантазер',
+    hint: 'Ищет улучшения внутри наших продуктов: UX/UI и инструменты команды. Спрашивает у тех, кто этим пользуется.',
+  },
+  {
     id: 'geek',
     name: 'Гик',
     tag: 'гик',
     hint: 'Собирает интересные находки из открытых чатов, каналов и других источников.',
   },
   {
-    id: 'rescuer',
-    name: 'Спасатель',
-    tag: 'спасатель',
-    hint: 'Вытаскивает боли и обратную связь пользователей из исследований.',
-  },
-  {
-    id: 'maker',
-    name: 'Творец',
-    tag: 'творец',
-    hint: 'Ищет UX/UI-улучшения в продуктах Дейли Банкинга.',
-  },
-  {
-    id: 'dreamer',
-    name: 'Фантазер',
-    tag: 'фантазер',
-    hint: 'Ищет улучшения внутри наших продуктов: UX/UI и инструменты команды.',
-  },
-  {
-    id: 'hustler',
-    name: 'Суетолог',
-    tag: 'суетолог',
-    hint: 'Регулярно собирает идеи у других команд.',
-  },
-  {
     id: 'strategist',
     name: 'Стратег',
     tag: 'стратег',
     hint: 'Собирает идеи из стратегий и целей топов.',
+  },
+  {
+    id: 'scout',
+    name: 'Разведчик',
+    tag: 'разведчик',
+    hint: 'Насыщает информацией задачи в бэклоге, для того чтобы взять в работу.',
   },
 ] as const
 
@@ -43,6 +37,24 @@ export type RoleMap = Record<string, RoleId>
 
 export function roleById(id: string | undefined | null) {
   return WEEK_ROLES.find((r) => r.id === id) ?? null
+}
+
+export function sanitizeRoles(map: RoleMap | undefined, memberIds: string[]): RoleMap {
+  const valid = new Set<RoleId>(WEEK_ROLES.map((r) => r.id))
+  const used = new Set<RoleId>()
+  const next: RoleMap = {}
+  for (const memberId of memberIds) {
+    const role = map?.[memberId]
+    if (role && valid.has(role) && !used.has(role)) {
+      next[memberId] = role
+      used.add(role)
+    }
+  }
+  const leftover = WEEK_ROLES.map((r) => r.id).filter((id) => !used.has(id))
+  for (const memberId of memberIds) {
+    if (!next[memberId] && leftover.length) next[memberId] = leftover.shift()!
+  }
+  return next
 }
 
 function hash(text: string) {

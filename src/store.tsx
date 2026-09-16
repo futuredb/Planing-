@@ -10,7 +10,7 @@ import { mondayOf, nextMonday, shiftMonday, uid } from './dates'
 import { itemScore, loadRemoteIfNewer, loadState, moveItemRemote, saveMe, saveState } from './storage'
 import type { AppState, Attachment, Criterion, Item, Lane } from './types'
 import type { StickerId } from './stickers'
-import { defaultRoles, rollRoles } from './roles'
+import { defaultRoles, rollRoles, sanitizeRoles } from './roles'
 import { StoreContext } from './store-context'
 
 export type Store = {
@@ -286,13 +286,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const api = useMemo<Store | null>(() => {
     if (!state || !me) return null
+    const memberIds = state.members.map((member) => member.id)
     const sprintRoles = state.sprints.find((sprint) => sprint.id === weekId)?.roles
-    const rolesForWeek =
+    const rolesForWeek = sanitizeRoles(
       sprintRoles && Object.keys(sprintRoles).length
         ? sprintRoles
         : liveWeek && Object.keys(state.roles ?? {}).length
           ? state.roles
-          : defaultRoles(weekId, state.members.map((member) => member.id))
+          : defaultRoles(weekId, memberIds),
+      memberIds,
+    )
     const view: AppState = { ...state, currentMemberId: me, roles: rolesForWeek }
 
     const withWeek = (prev: AppState, id: string) => {

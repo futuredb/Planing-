@@ -1347,8 +1347,9 @@ textarea:focus {
 
 .backlog-matrix {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(200px, 1fr));
   gap: 12px;
+  overflow-x: auto;
 }
 
 .matrix-quadrant {
@@ -1480,6 +1481,17 @@ textarea:focus {
   font-variant-numeric: tabular-nums;
 }
 
+.backlog-list-panel {
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.backlog-list-panel .matrix-unassigned-head {
+  margin: 0;
+}
+
 .backlog-table-wrap {
   width: 100%;
   overflow: auto;
@@ -1487,6 +1499,11 @@ textarea:focus {
   border-radius: 15px;
   background: var(--surface);
   scrollbar-color: var(--line-strong) transparent;
+}
+
+.backlog-list-panel .backlog-table-wrap {
+  border: 0;
+  border-radius: 0;
 }
 
 .backlog-table {

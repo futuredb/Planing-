@@ -3,6 +3,13 @@ import type { StickerId } from './stickers'
 
 export type Lane = 'inbox' | 'backlog' | 'todo' | 'doing' | 'done' | 'archive'
 
+export type MatrixBucket =
+  | 'take-next'
+  | 'need-finish'
+  | 'research-next'
+  | 'automate'
+  | 'need-clarify'
+
 export type Member = {
   id: string
   name: string
@@ -47,6 +54,7 @@ export type Item = {
   assigneeId: string | null
   authorId: string | null
   scores: Record<string, number>
+  matrixBucket?: MatrixBucket | null
   attachments: Attachment[]
   stickers: PlacedSticker[]
   createdVia?: 'agent'

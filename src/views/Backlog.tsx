@@ -5,56 +5,24 @@ import { AuthorMeta } from '../AuthorMeta'
 import { cardDropBind } from '../card-drop'
 import { ReactionBar } from '../StickerBar'
 import { useStore } from '../store-context'
-import type { Criterion, Item } from '../types'
+import type { Criterion, Item, MatrixBucket } from '../types'
 import { Icon } from '../ui/Icon'
 
 
 type BacklogTab = 'list' | 'matrix'
-type MatrixBucket = 'urgent-important' | 'not-urgent-important' | 'urgent-not-important' | 'not-urgent-not-important'
 
 const MATRIX_BUCKETS: { id: MatrixBucket; title: string }[] = [
-  { id: 'urgent-important', title: 'Срочно важно' },
-  { id: 'not-urgent-important', title: 'Не срочно важно' },
-  { id: 'urgent-not-important', title: 'Срочно не важно' },
-  { id: 'not-urgent-not-important', title: 'Не срочно не важно' },
+  { id: 'take-next', title: 'Берём следующим' },
+  { id: 'need-finish', title: 'Нужно закончить' },
+  { id: 'research-next', title: 'Что исследовать дальше' },
+  { id: 'automate', title: 'Что стоит автоматизировать' },
+  { id: 'need-clarify', title: 'Нужно прояснить' },
 ]
 
 const MATRIX_ITEM_MIME = 'application/x-funban-matrix-item'
 
-function criterionByName(criteria: Criterion[], name: string) {
-  return criteria.find((criterion) => criterion.name.trim().toLowerCase() === name.toLowerCase()) ?? null
-}
-
-function scoreValue(item: Item, criterion: Criterion | null) {
-  if (!criterion) return 0
-  return item.scores[criterion.id] ?? 0
-}
-
-function hasMatrixScores(item: Item, focus: Criterion | null, agenda: Criterion | null) {
-  if (!focus || !agenda) return false
-  return item.scores[focus.id] != null && item.scores[agenda.id] != null
-}
-
-function matrixBucket(item: Item, focus: Criterion | null, agenda: Criterion | null): MatrixBucket {
-  const focusScore = scoreValue(item, focus)
-  const agendaScore = scoreValue(item, agenda)
-  const important = focusScore >= ((focus?.max ?? 3) / 2)
-  const urgent = agendaScore >= ((agenda?.max ?? 3) / 2)
-
-  if (urgent && important) return 'urgent-important'
-  if (!urgent && important) return 'not-urgent-important'
-  if (urgent && !important) return 'urgent-not-important'
-  return 'not-urgent-not-important'
-}
-
-function bucketScores(bucket: MatrixBucket, focus: Criterion | null, agenda: Criterion | null) {
-  const important = bucket === 'urgent-important' || bucket === 'not-urgent-important'
-  const urgent = bucket === 'urgent-important' || bucket === 'urgent-not-important'
-
-  return {
-    focus: important ? (focus?.max ?? 3) : 0,
-    agenda: urgent ? (agenda?.max ?? 3) : 0,
-  }
+function isMatrixBucket(value: Item['matrixBucket']): value is MatrixBucket {
+  return MATRIX_BUCKETS.some((bucket) => bucket.id === value)
 }
 
 function parseScore(raw: string, criterion: Criterion): number | null {
@@ -139,6 +107,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
     assignItem,
     setScore,
     toggleReaction,
+    updateItem,
   } = useStore()
   const [settings, setSettings] = useState(false)
   const [tab, setTab] = useState<BacklogTab>('list')
@@ -147,13 +116,11 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
     .filter((item) => item.lane === 'backlog' && !item.parentId)
     .slice()
     .sort((a, b) => (scoreOf(b) ?? -1) - (scoreOf(a) ?? -1))
-  const focusCriterion = criterionByName(state.criteria, 'Фокус')
-  const agendaCriterion = criterionByName(state.criteria, 'Повестка')
-  const matrixRows = rows.filter((item) => hasMatrixScores(item, focusCriterion, agendaCriterion))
-  const unassignedMatrixRows = rows.filter((item) => !hasMatrixScores(item, focusCriterion, agendaCriterion))
+  const matrixRows = rows.filter((item) => isMatrixBucket(item.matrixBucket))
+  const unassignedMatrixRows = rows.filter((item) => !isMatrixBucket(item.matrixBucket))
   const matrix = MATRIX_BUCKETS.map((bucket) => ({
     ...bucket,
-    items: matrixRows.filter((item) => matrixBucket(item, focusCriterion, agendaCriterion) === bucket.id),
+    items: matrixRows.filter((item) => item.matrixBucket === bucket.id),
   }))
 
   function draftKey(itemId: string, criterionId: string) {
@@ -206,11 +173,9 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
 
   function onMatrixDrop(bucket: MatrixBucket, event: DragEvent<HTMLElement>) {
     const itemId = event.dataTransfer.getData(MATRIX_ITEM_MIME)
-    if (!itemId || !focusCriterion || !agendaCriterion) return
-    const next = bucketScores(bucket, focusCriterion, agendaCriterion)
+    if (!itemId) return
     event.preventDefault()
-    setScore(itemId, focusCriterion.id, next.focus)
-    setScore(itemId, agendaCriterion.id, next.agenda)
+    updateItem(itemId, { matrixBucket: bucket })
   }
 
   useEffect(() => {
@@ -248,6 +213,11 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
       {rows.length ? (
         <>
           {tab === 'list' ? (
+          <section className="backlog-list-panel">
+            <header className="matrix-unassigned-head">
+              <h2>Задачи</h2>
+              <span>{rows.length}</span>
+            </header>
           <div className="backlog-table-wrap">
             <table className="backlog-table">
               <thead>
@@ -335,9 +305,6 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
               </tbody>
             </table>
           </div>
-          ) : null}
-
-          {tab === 'list' ? (
           <ul className="backlog-mobile">
             {rows.map((item) => {
               const owner = state.members.find((member) => member.id === item.assigneeId)
@@ -387,6 +354,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
               )
             })}
           </ul>
+          </section>
           ) : null}
 
           {tab === 'matrix' ? (

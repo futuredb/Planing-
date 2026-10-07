@@ -259,17 +259,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sequence: number,
       atomicOnly: boolean,
     ) => {
+      if (!atomicOnly) return
       void moveItemRemote(id, lane, sprintId).then((result) => {
         if (!result?.ok) {
-          if (atomicOnly) {
-            fullSavePending.current = true
-            fullSaveSequence.current += 1
-            setState((current) => (current ? bump(current) : current))
-          }
+          fullSavePending.current = true
+          fullSaveSequence.current += 1
+          setState((current) => (current ? bump(current) : current))
           return
         }
         moveTracker.acknowledge(id, sequence)
-        if (!atomicOnly) return
         void loadRemoteIfNewer(-1).then((remote) => {
           if (!remote || fullSavePending.current) return
           remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)

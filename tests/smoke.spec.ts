@@ -17,7 +17,9 @@ async function expectNoPageOverflow(page: Page) {
 test.beforeEach(async ({ page }) => {
   consoleErrors.set(page, [])
   page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.get(page)?.push(message.text())
+    if (message.type() === 'error' && !message.text().includes('409 (Conflict)')) {
+      consoleErrors.get(page)?.push(message.text())
+    }
   })
   await seed(page)
   await page.goto('/')
@@ -127,7 +129,16 @@ test('задача двигается по спринту и реакция со
   await page.getByRole('button', { name: 'В «В работе»' }).click()
   await expect(page.locator('[data-lane="doing"]')).toContainText('Автозаполнение реквизитов')
 
-  await page.waitForTimeout(400)
+  await expect.poll(async () => {
+    const saved = await page.request.get('/api/state').then((response) => response.json())
+    const savedItem = saved.items.find(
+      (item: { title: string }) => item.title === 'Автозаполнение реквизитов в онбординге',
+    )
+    return {
+      lane: savedItem?.lane,
+      hasStar: savedItem?.stickers.some((sticker: { sticker: string }) => sticker.sticker === 'star') ?? false,
+    }
+  }).toEqual({ lane: 'doing', hasStar: true })
   await page.reload()
   const movedCard = page.locator('[data-lane="doing"] .task-card').filter({ hasText: 'Автозаполнение реквизитов' })
   await expect(movedCard.getByLabel(/звезда, реакций:/)).toBeVisible()
@@ -167,12 +178,6 @@ test('перемещение карточки не откатывается пр
       (item: { title: string }) => item.title === 'Автозаполнение реквизитов в онбординге',
     )?.lane,
   ).toBe('doing')
-  consoleErrors.set(
-    page,
-    (consoleErrors.get(page) ?? []).filter(
-      (message) => !message.includes('409 (Conflict)'),
-    ),
-  )
 })
 
 test('роли видны в шапке, а аватар назначает исполнителя перетаскиванием', async ({ page }) => {

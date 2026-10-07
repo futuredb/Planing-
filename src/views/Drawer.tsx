@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { Avatar } from '../Avatar'
 import { AuthorMeta } from '../AuthorMeta'
@@ -52,6 +52,7 @@ export function Drawer({
   const [titleFocused, setTitleFocused] = useState(false)
   const [bodyFocused, setBodyFocused] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
+  const commentRef = useRef<HTMLTextAreaElement>(null)
   const [preview, setPreview] = useState<Attachment | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -93,6 +94,7 @@ export function Drawer({
     if (!text) return
     addComment(item.id, text)
     setCommentDraft('')
+    requestAnimationFrame(() => commentRef.current?.focus())
   }
 
   function split() {
@@ -465,6 +467,7 @@ export function Drawer({
                 )}
                 <form onSubmit={sendComment} className="comment-form">
                   <textarea
+                    ref={commentRef}
                     value={commentDraft}
                     onChange={(event) => setCommentDraft(event.target.value)}
                     rows={3}

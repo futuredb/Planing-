@@ -3,7 +3,7 @@ import type { AppState, Criterion, Item, Lane, Member } from './types'
 import { createEmpty, DEFAULT_CRITERIA, isLegacyCriteria, TEAM_MEMBERS } from './seed'
 import { mondayOf } from './dates'
 import type { RoleMap } from './roles'
-import { defaultRoles, sanitizeRoles } from './roles'
+import { preserveRoles } from './roles'
 
 const ME_KEY = 'weekboard-me'
 
@@ -63,7 +63,7 @@ export async function loadRemoteIfNewer(localUpdatedAt: number): Promise<AppStat
     if (!res.ok) return null
     const remote = await res.json()
     if (!remote || !Array.isArray(remote.items)) return null
-    if (Number(remote.updatedAt) === localUpdatedAt) return null
+    if (!(Number(remote.updatedAt) > localUpdatedAt)) return null
     return withPersona(migrate(remote as AppState))
   } catch {
     return null
@@ -158,13 +158,13 @@ function migrateMembers(state: AppState): Member[] {
 }
 
 function pickRoles(state: AppState, memberIds: string[]): RoleMap {
-  if (state.roles && Object.keys(state.roles).length) return sanitizeRoles(state.roles, memberIds)
+  if (state.roles && Object.keys(state.roles).length) return preserveRoles(state.roles, memberIds)
   const week = mondayOf()
   const fromWeek = state.sprints?.find((s) => s.id === week)?.roles
-  if (fromWeek && Object.keys(fromWeek).length) return sanitizeRoles(fromWeek, memberIds)
+  if (fromWeek && Object.keys(fromWeek).length) return preserveRoles(fromWeek, memberIds)
   const fromAny = state.sprints?.find((s) => s.roles && Object.keys(s.roles).length)?.roles
-  if (fromAny) return sanitizeRoles(fromAny, memberIds)
-  return defaultRoles('crew', memberIds)
+  if (fromAny) return preserveRoles(fromAny, memberIds)
+  return {}
 }
 
 function migrate(state: AppState): AppState {
@@ -199,7 +199,7 @@ function migrate(state: AppState): AppState {
       }
     }),
     sprints: (state.sprints ?? []).map((sprint) =>
-      sprint.roles ? { ...sprint, roles: sanitizeRoles(sprint.roles, memberIds) } : sprint,
+      sprint.roles ? { ...sprint, roles: preserveRoles(sprint.roles, memberIds) } : sprint,
     ),
     comments: state.comments ?? [],
     criteria: isLegacyCriteria(state.criteria)
@@ -250,7 +250,7 @@ export function itemScore(item: Item, criteria: Criterion[]): number | null {
 
 export function filesToAttachments(files: FileList | File[]) {
   return Promise.all(
-    [...files].filter((f) => f.type.startsWith('image/')).map(
+    [...files].map(
       (file) =>
         new Promise<{ id: string; name: string; mime: string; dataUrl: string }>(
           (resolve, reject) => {

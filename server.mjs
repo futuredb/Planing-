@@ -17,6 +17,7 @@ const dist = path.join(root, 'dist')
 const dataPath = process.env.FUNBAN_DATA || process.env.WEEKBOARD_DATA
 const stateFile = dataPath ? path.resolve(dataPath) : path.join(root, 'data', 'state.json')
 const port = Number(process.env.PORT || 3000)
+const host = process.env.HOST || '0.0.0.0'
 const publicUrl = process.env.FUNBAN_PUBLIC_URL || 'https://funban.future-db.ru/'
 const mcpToken = process.env.FUNBAN_MCP_TOKEN || ''
 const allowedMcpHostnames = [
@@ -288,8 +289,8 @@ const server = http.createServer(async (req, res) => {
 })
 
 fs.mkdirSync(path.dirname(stateFile), { recursive: true })
-server.listen(port, '0.0.0.0', () => {
-  console.log(`Funban on http://0.0.0.0:${port}`)
+server.listen(port, host, () => {
+  console.log(`Funban on http://${host}:${port}`)
   console.log(`tasks: ${stateFile}`)
   console.log(`MCP: ${mcpToken ? '/mcp enabled' : 'disabled (set FUNBAN_MCP_TOKEN)'}`)
 })

@@ -57,6 +57,20 @@ export function sanitizeRoles(map: RoleMap | undefined, memberIds: string[]): Ro
   return next
 }
 
+export function preserveRoles(map: RoleMap | undefined, memberIds: string[]): RoleMap {
+  const valid = new Set<RoleId>(WEEK_ROLES.map((r) => r.id))
+  const used = new Set<RoleId>()
+  const next: RoleMap = {}
+  for (const memberId of memberIds) {
+    const role = map?.[memberId]
+    if (role && valid.has(role) && !used.has(role)) {
+      next[memberId] = role
+      used.add(role)
+    }
+  }
+  return next
+}
+
 function hash(text: string) {
   let h = 2166136261
   for (let i = 0; i < text.length; i++) {

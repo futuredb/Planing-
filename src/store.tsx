@@ -10,7 +10,7 @@ import { mondayOf, nextMonday, shiftMonday, uid } from './dates'
 import { itemScore, loadRemoteIfNewer, loadState, moveItemRemote, saveMe, saveState } from './storage'
 import type { AppState, Attachment, Criterion, Item, Lane } from './types'
 import type { StickerId } from './stickers'
-import { defaultRoles, rollRoles, sanitizeRoles } from './roles'
+import { preserveRoles, rollRoles } from './roles'
 import { StoreContext } from './store-context'
 
 export type Store = {
@@ -218,8 +218,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const t = setInterval(() => {
+      if (fullSavePending.current) return
       void loadRemoteIfNewer(state?.updatedAt ?? 0).then((remote) => {
         if (!remote) return
+        if (fullSavePending.current) return
         remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)
         setMe(remote.currentMemberId)
         const rebased = reapplyPendingMoves(remote, moveTracker.pending)
@@ -288,12 +290,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!state || !me) return null
     const memberIds = state.members.map((member) => member.id)
     const sprintRoles = state.sprints.find((sprint) => sprint.id === weekId)?.roles
-    const rolesForWeek = sanitizeRoles(
+    const rolesForWeek = preserveRoles(
       sprintRoles && Object.keys(sprintRoles).length
         ? sprintRoles
         : liveWeek && Object.keys(state.roles ?? {}).length
           ? state.roles
-          : defaultRoles(weekId, memberIds),
+          : {},
       memberIds,
     )
     const view: AppState = { ...state, currentMemberId: me, roles: rolesForWeek }

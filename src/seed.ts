@@ -1,6 +1,5 @@
 import type { AppState, Criterion } from './types'
 import { mondayOf, nextMonday, uid } from './dates'
-import { defaultRoles } from './roles'
 
 export const TEAM_MEMBERS = [
   { id: 'm1', name: 'Лиля', role: '', avatar: '/avatars/m1.png?v=2' },
@@ -39,10 +38,7 @@ function emptyBoard(): Omit<AppState, 'items' | 'comments'> {
     updatedAt: Date.now(),
     members,
     currentMemberId: members[0].id,
-    roles: defaultRoles(
-      'crew',
-      members.map((m) => m.id),
-    ),
+    roles: {},
     criteria: DEFAULT_CRITERIA.map((c) => ({ ...c })),
     sprints: [
       {
@@ -77,10 +73,7 @@ export function createSeed(): AppState {
     updatedAt: Date.now(),
     members,
     currentMemberId: members[0].id,
-    roles: defaultRoles(
-      'crew',
-      members.map((m) => m.id),
-    ),
+    roles: {},
     criteria: DEFAULT_CRITERIA.map((c) => ({ ...c })),
     sprints: [
       {

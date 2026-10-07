@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
 import { AuthorMeta } from '../AuthorMeta'
@@ -21,6 +21,8 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
   const [actionsOpen, setActionsOpen] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
   const [assigneeFilters, setAssigneeFilters] = useState<Set<string>>(() => new Set())
+  const [goalDraft, setGoalDraft] = useState('')
+  const [goalFocused, setGoalFocused] = useState(false)
   const boardRef = useRef<HTMLDivElement>(null)
   const goalRef = useRef<HTMLTextAreaElement>(null)
   const sprint = state.sprints.find((candidate) => candidate.id === weekId)
@@ -36,7 +38,11 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
 
     goal.style.height = 'auto'
     goal.style.height = `${goal.scrollHeight}px`
-  }, [sprint?.goal, weekId])
+  }, [goalDraft, sprint?.goal, weekId])
+
+  useEffect(() => {
+    if (!goalFocused) setGoalDraft(sprint?.goal ?? '')
+  }, [goalFocused, sprint?.goal, weekId])
 
   function onDrop(lane: Lane, event: DragEvent) {
     const id = event.dataTransfer.getData('text/id')
@@ -67,11 +73,19 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
           <span className="eyebrow">Цель недели</span>
           <textarea
             ref={goalRef}
-            value={sprint?.goal ?? ''}
-            onChange={(event) => setGoal(event.target.value)}
+            value={goalFocused ? goalDraft : (sprint?.goal ?? '')}
+            onFocus={() => {
+              setGoalDraft(sprint?.goal ?? '')
+              setGoalFocused(true)
+            }}
+            onBlur={() => setGoalFocused(false)}
+            onChange={(event) => {
+              setGoalDraft(event.target.value)
+              setGoal(event.target.value)
+            }}
             rows={1}
             aria-label="Цель недели"
-            placeholder="Один понятный результат, ради которого идёт спринт"
+            placeholder="1-2 результата за спринт от команды, которым можем поделиться"
           />
         </div>
         <div className="summary-actions">
@@ -247,7 +261,7 @@ function SprintCard({
 
   return (
     <article
-      className="task-card item-drop-zone"
+      className={`task-card item-drop-zone${menuOpen ? ' menu-open' : ''}`}
       draggable
       onDragStart={(event) => {
         if ((event.target as HTMLElement).closest('button, input, textarea, select')) {

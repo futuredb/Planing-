@@ -28,10 +28,10 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   }, [])
 
   async function onPaste(event: ClipboardEvent) {
-    const images = [...event.clipboardData.files].filter((file) => file.type.startsWith('image/'))
-    if (!images.length) return
+    const pastedFiles = [...event.clipboardData.files]
+    if (!pastedFiles.length) return
     event.preventDefault()
-    await addFiles(images)
+    await addFiles(pastedFiles)
   }
 
   function submit(event: FormEvent) {
@@ -103,12 +103,12 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
               <div className="thumbs">
                 {files.map((file) => (
                   <figure key={file.id} className="thumb-item">
-                    <img src={file.dataUrl} alt={file.name} />
+                    <AttachmentThumb attachment={file} />
                     <button
                       type="button"
                       className="thumb-remove"
                       onClick={() => setFiles((previous) => previous.filter((item) => item.id !== file.id))}
-                      aria-label="Удалить картинку"
+                      aria-label="Удалить файл"
                     >
                       <Icon name="close" size={14} />
                     </button>
@@ -126,10 +126,9 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
             </button>
             <label className="toolbar-button">
               <Icon name="image" />
-              Скриншот
+              Файл
               <input
                 type="file"
-                accept="image/*"
                 multiple
                 onChange={(event) => event.target.files && addFiles(event.target.files)}
               />
@@ -185,7 +184,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
                         <RoleChip roleId={state.roles?.[author.id]} />
                       </>
                     ) : null}
-                    {item.attachments.length ? <span>{item.attachments.length} изобр.</span> : null}
+                    {item.attachments.length ? <span>{item.attachments.length} файл.</span> : null}
                     <ReactionBar item={item} compact />
                   </div>
                 </div>
@@ -210,5 +209,20 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
         </div>
       )}
     </section>
+  )
+}
+
+function AttachmentThumb({ attachment }: { attachment: Attachment }) {
+  if (attachment.mime.startsWith('image/')) {
+    return <img src={attachment.dataUrl} alt={attachment.name} />
+  }
+  if (attachment.mime.startsWith('video/')) {
+    return <video src={attachment.dataUrl} muted playsInline preload="metadata" />
+  }
+  return (
+    <div className="file-thumb">
+      <Icon name="image" />
+      <span>{attachment.name}</span>
+    </div>
   )
 }

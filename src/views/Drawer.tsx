@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type MouseEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { Avatar } from '../Avatar'
 import { AuthorMeta } from '../AuthorMeta'
@@ -47,7 +47,11 @@ export function Drawer({
   const [tab, setTab] = useState<DrawerTab>('details')
   const [parts, setParts] = useState('')
   const [linkTargetId, setLinkTargetId] = useState('')
-  const commentRef = useRef<HTMLTextAreaElement>(null)
+  const [titleDraft, setTitleDraft] = useState(item.title)
+  const [bodyDraft, setBodyDraft] = useState(item.body)
+  const [titleFocused, setTitleFocused] = useState(false)
+  const [bodyFocused, setBodyFocused] = useState(false)
+  const [commentDraft, setCommentDraft] = useState('')
   const [preview, setPreview] = useState<Attachment | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -65,6 +69,14 @@ export function Drawer({
   }, [])
 
   useEffect(() => {
+    if (!titleFocused) setTitleDraft(item.title)
+  }, [item.id, item.title, titleFocused])
+
+  useEffect(() => {
+    if (!bodyFocused) setBodyDraft(item.body)
+  }, [bodyFocused, item.body, item.id])
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (preview) setPreview(null)
@@ -77,12 +89,10 @@ export function Drawer({
 
   function sendComment(event: FormEvent) {
     event.preventDefault()
-    const field = commentRef.current
-    const text = field?.value.trim()
-    if (!field || !text) return
+    const text = commentDraft.trim()
+    if (!text) return
     addComment(item.id, text)
-    field.value = ''
-    field.focus()
+    setCommentDraft('')
   }
 
   function split() {
@@ -99,7 +109,7 @@ export function Drawer({
     setParts('')
   }
 
-  async function addImages(list: FileList | File[]) {
+  async function addFiles(list: FileList | File[]) {
     const next = await filesToAttachments(list)
     if (!next.length) return
     updateItem(item.id, { attachments: [...item.attachments, ...next] })
@@ -125,7 +135,7 @@ export function Drawer({
             if (event.defaultPrevented) return
             if (event.dataTransfer.files.length) {
               event.preventDefault()
-              await addImages(event.dataTransfer.files)
+              await addFiles(event.dataTransfer.files)
             }
           }}
         >
@@ -189,17 +199,33 @@ export function Drawer({
                 ) : null}
                 <textarea
                   className="drawer-title"
-                  value={item.title}
+                  value={titleFocused ? titleDraft : item.title}
                   rows={2}
-                  onChange={(event) => updateItem(item.id, { title: event.target.value })}
+                  onFocus={() => {
+                    setTitleDraft(item.title)
+                    setTitleFocused(true)
+                  }}
+                  onBlur={() => setTitleFocused(false)}
+                  onChange={(event) => {
+                    setTitleDraft(event.target.value)
+                    updateItem(item.id, { title: event.target.value })
+                  }}
                   aria-label="Название задачи"
                 />
                 <AuthorMeta item={item} members={state.members} />
                 <textarea
                   className="drawer-description"
                   rows={6}
-                  value={item.body}
-                  onChange={(event) => updateItem(item.id, { body: event.target.value })}
+                  value={bodyFocused ? bodyDraft : item.body}
+                  onFocus={() => {
+                    setBodyDraft(item.body)
+                    setBodyFocused(true)
+                  }}
+                  onBlur={() => setBodyFocused(false)}
+                  onChange={(event) => {
+                    setBodyDraft(event.target.value)
+                    updateItem(item.id, { body: event.target.value })
+                  }}
                   placeholder="Добавьте описание, ссылку или контекст"
                   aria-label="Описание задачи"
                 />
@@ -273,13 +299,13 @@ export function Drawer({
                       {item.attachments.map((attachment) => (
                         <figure key={attachment.id} className="thumb-item">
                           <button type="button" className="thumb-open" onClick={() => setPreview(attachment)}>
-                            <img src={attachment.dataUrl} alt={attachment.name} />
+                            <AttachmentThumb attachment={attachment} />
                           </button>
                           <button
                             type="button"
                             className="thumb-remove"
                             onClick={() => updateItem(item.id, { attachments: item.attachments.filter((entry) => entry.id !== attachment.id) })}
-                            aria-label="Удалить картинку"
+                            aria-label="Удалить файл"
                           >
                             <Icon name="close" size={14} />
                           </button>
@@ -289,13 +315,12 @@ export function Drawer({
                   ) : null}
                   <label className="secondary-button file-button">
                     <Icon name="image" />
-                    Добавить изображение
+                    Добавить файл
                     <input
                       type="file"
-                      accept="image/*"
                       multiple
                       onChange={(event) => {
-                        if (event.target.files) void addImages(event.target.files)
+                        if (event.target.files) void addFiles(event.target.files)
                         event.target.value = ''
                       }}
                     />
@@ -440,7 +465,8 @@ export function Drawer({
                 )}
                 <form onSubmit={sendComment} className="comment-form">
                   <textarea
-                    ref={commentRef}
+                    value={commentDraft}
+                    onChange={(event) => setCommentDraft(event.target.value)}
                     rows={3}
                     placeholder="Написать комментарий…"
                   />
@@ -457,7 +483,7 @@ export function Drawer({
           <button type="button" className="icon-button" onClick={() => setPreview(null)} aria-label="Закрыть превью">
             <Icon name="close" />
           </button>
-          <img src={preview.dataUrl} alt={preview.name} onClick={(event) => event.stopPropagation()} />
+          <AttachmentPreview attachment={preview} onClick={(event) => event.stopPropagation()} />
         </div>
       ) : null}
 
@@ -484,6 +510,43 @@ export function Drawer({
         </div>
       ) : null}
     </>
+  )
+}
+
+function AttachmentThumb({ attachment }: { attachment: Attachment }) {
+  if (attachment.mime.startsWith('image/')) {
+    return <img src={attachment.dataUrl} alt={attachment.name} />
+  }
+  if (attachment.mime.startsWith('video/')) {
+    return <video src={attachment.dataUrl} muted playsInline preload="metadata" />
+  }
+  return (
+    <div className="file-thumb">
+      <Icon name="image" />
+      <span>{attachment.name}</span>
+    </div>
+  )
+}
+
+function AttachmentPreview({
+  attachment,
+  onClick,
+}: {
+  attachment: Attachment
+  onClick: (event: MouseEvent<HTMLElement>) => void
+}) {
+  if (attachment.mime.startsWith('image/')) {
+    return <img src={attachment.dataUrl} alt={attachment.name} onClick={onClick} />
+  }
+  if (attachment.mime.startsWith('video/')) {
+    return <video src={attachment.dataUrl} controls autoPlay onClick={onClick} />
+  }
+  return (
+    <a className="file-preview-card" href={attachment.dataUrl} download={attachment.name} onClick={onClick}>
+      <Icon name="image" />
+      <span>{attachment.name}</span>
+      <small>{attachment.mime || 'Файл'}</small>
+    </a>
   )
 }
 

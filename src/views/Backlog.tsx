@@ -110,7 +110,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
     updateItem,
   } = useStore()
   const [settings, setSettings] = useState(false)
-  const [tab, setTab] = useState<BacklogTab>('list')
+  const [tab, setTab] = useState<BacklogTab>('matrix')
   const [draftScores, setDraftScores] = useState<Record<string, number | null>>({})
   const rows = state.items
     .filter((item) => item.lane === 'backlog' && !item.parentId)

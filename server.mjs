@@ -1,3 +1,4 @@
+import {httpMiddleware,instrumentFetch,scheduleKeySnapshots} from './futuredb-telemetry.mjs';
 /**
  * Production host: `npm run build && npm start`
  * Tasks live in data/state.json (or FUNBAN_DATA). Redeploys of dist/ do not replace that file.
@@ -116,6 +117,7 @@ function safeFile(urlPath) {
 }
 
 const server = http.createServer(async (req, res) => {
+  httpMiddleware(r=>['PUT','POST','DELETE'].includes(r.method)?'funban.update':undefined)(req,res);
   const url = req.url || '/'
 
   if (url === '/mcp' || url.startsWith('/mcp?')) {

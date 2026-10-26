@@ -129,7 +129,7 @@ function trimRequests(requests) {
   )
 }
 
-export function createStateRepository(stateFile) {
+export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
   const metadataFile = `${stateFile}.mcp.json`
   const auditFile = `${stateFile}.audit.jsonl`
   let queue = Promise.resolve()
@@ -155,6 +155,10 @@ export function createStateRepository(stateFile) {
   function writeState(state) {
     writeAtomic(stateFile, JSON.stringify(state))
     cachedState = state
+  }
+
+  function notify(previous, next) {
+    try { Promise.resolve(onChange(previous, next)).catch(() => {}) } catch {}
   }
 
   function readMetadata() {
@@ -209,6 +213,7 @@ export function createStateRepository(stateFile) {
 
         incoming.updatedAt = nextVersion(previous, incoming)
         writeState(incoming)
+        notify(previous, incoming)
         return { state: incoming, preservedIds }
       })
     },
@@ -247,6 +252,7 @@ export function createStateRepository(stateFile) {
           })}\n`,
         )
 
+        notify(state, outcome.state)
         return result
       })
     },

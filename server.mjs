@@ -1,4 +1,5 @@
-import {httpMiddleware,instrumentFetch,scheduleKeySnapshots} from './futuredb-telemetry.mjs';
+import { committedActions } from './activity.mjs'
+import {httpMiddleware,emit} from './futuredb-telemetry.mjs';
 /**
  * Production host: `npm run build && npm start`
  * Tasks live in data/state.json (or FUNBAN_DATA). Redeploys of dist/ do not replace that file.
@@ -30,7 +31,13 @@ const allowedMcpHostnames = [
 ].filter(Boolean)
 const validateMcpHost = hostHeaderValidation([...new Set(allowedMcpHostnames)])
 const validateMcpOrigin = originValidation([...new Set(allowedMcpHostnames)])
-const repository = createStateRepository(stateFile)
+const repository = createStateRepository(stateFile, {
+  onChange(previous, next) {
+    for (const action of committedActions(previous, next)) {
+      void emit('action', { action, outcome: 'success', route: '/api/state' })
+    }
+  },
+})
 const mcpHandler = createFunbanMcpHandler({
   repository,
   publicUrl,
@@ -117,7 +124,7 @@ function safeFile(urlPath) {
 }
 
 const server = http.createServer(async (req, res) => {
-  httpMiddleware(r=>['PUT','POST','DELETE'].includes(r.method)?'funban.update':undefined)(req,res);
+  httpMiddleware()(req,res);
   const url = req.url || '/'
 
   if (url === '/mcp' || url.startsWith('/mcp?')) {

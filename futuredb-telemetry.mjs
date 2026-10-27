@@ -93,7 +93,7 @@ export function instrumentFetch(fetcher,context={}){return async function(input,
  };}
 export function httpMiddleware(actionForRequest){return (request,response,next)=>{const start=Date.now();response.once('finish',()=>{
   if(/\/(?:healthz?|api\/health)(?:\?|$)|\.(?:js|css|png|webp|woff2?)(?:\?|$)/.test(request.url||''))return;
-  const route=String(request.telemetryRoute||request.route?.path||'/').replace(/[a-f0-9-]{24,}/gi,':id').replace(/[^a-zA-Z0-9_./:\[\]-]/g,'').slice(0,200);
+  const route=String(request.telemetryRoute||request.route?.path||'/').replace(/[a-f0-9-]{24,}/gi,':id').replace(/[^a-zA-Z0-9_./:[\]-]/g,'').slice(0,200);
   if(/health|dashboard|telemetry|\.(js|css|png|woff)/.test(route))return;
   void emit('api_request',{route,statusCode:response.statusCode,durationMs:Date.now()-start,outcome:response.statusCode>=400?'error':'success'});
   const action=actionForRequest?.(request);if(action)void emit('action',{action,outcome:response.statusCode>=400?'error':'success',route,...(request.principalId?{visitorId:anonymousId(request.principalId),identityKind:'api_client',device:'api'}:{})});

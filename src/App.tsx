@@ -3,6 +3,7 @@ import { Avatar } from './Avatar'
 import { sprintName, weekLabel } from './dates'
 import { RoleChip } from './RoleChip'
 import { ReactionSources } from './StickerBar'
+import { TaskSearch } from './TaskSearch'
 import { useStore } from './store-context'
 import { Icon, type IconName } from './ui/Icon'
 import { Archive } from './views/Archive'
@@ -27,6 +28,9 @@ type ViewId = (typeof views)[number]['id']
 export default function App() {
   const {
     state,
+    syncStatus,
+    syncError,
+    retrySave,
     weekId,
     liveWeek,
     shiftWeek,
@@ -79,22 +83,28 @@ export default function App() {
       </aside>
 
       <header className="context-bar">
-        <div className="week-switcher">
-          <button type="button" className="icon-button" onClick={() => shiftWeek(-1)} aria-label="Предыдущая неделя">
-            <Icon name="left" />
-          </button>
-          <div className="week-copy">
-            <strong>{sprintName(weekId)}</strong>
-            <span>{weekLabel(weekId)}</span>
-            {!liveWeek ? (
-              <button type="button" className="text-button" onClick={goThisWeek}>
-                Сегодня
-              </button>
-            ) : null}
+        <div className="header-top">
+          <div className="week-switcher">
+            <button type="button" className="icon-button" onClick={() => shiftWeek(-1)} aria-label="Предыдущая неделя">
+              <Icon name="left" />
+            </button>
+            <div className="week-copy">
+              <strong>{sprintName(weekId)}</strong>
+              <span>{weekLabel(weekId)}</span>
+              {!liveWeek ? (
+                <button type="button" className="text-button" onClick={goThisWeek}>
+                  Сегодня
+                </button>
+              ) : null}
+            </div>
+            <button type="button" className="icon-button" onClick={() => shiftWeek(1)} aria-label="Следующая неделя">
+              <Icon name="right" />
+            </button>
           </div>
-          <button type="button" className="icon-button" onClick={() => shiftWeek(1)} aria-label="Следующая неделя">
-            <Icon name="right" />
-          </button>
+          {syncStatus === 'retry' || syncStatus === 'error' ? <div className="sync-notice" role="status">
+            {syncStatus === 'error' ? <>Не сохранено: {syncError} <button type="button" className="text-button" onClick={retrySave}>Повторить</button></> : 'Не сохранено — повторяем подключение'}
+          </div> : null}
+          <TaskSearch items={state.items} members={state.members} onOpen={setOpenId} />
         </div>
 
         <div className="header-tools">

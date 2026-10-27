@@ -9,8 +9,9 @@
     "start": "node server.mjs",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:e2e": "playwright test",
-    "test:mcp": "node --test tests/mcp.test.mjs"
+    "test:e2e": "npm run build && playwright test",
+    "test:mcp": "node --test tests/mcp.test.mjs",
+    "preview:checks": "npm run build && node tests/preview-server.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",

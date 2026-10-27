@@ -28,32 +28,17 @@ function withPersona(state: AppState): AppState {
   const id =
     saved && state.members.some((m) => m.id === saved)
       ? saved
-      : (state.members[0]?.id ?? 'm1')
+      : ''
   return { ...state, currentMemberId: id }
 }
 
 export async function loadState(): Promise<AppState> {
-  try {
-    const res = await fetch('/api/state')
-    if (res.ok) {
-      const remote = await res.json()
-      if (remote && Array.isArray(remote.items)) {
-        return withPersona(migrate(remote as AppState))
-      }
-      return withPersona(createEmpty())
-    }
-  } catch {
-    /* static host / offline */
-  }
-
-  try {
-    const raw = localStorage.getItem('weekboard-state-v1')
-    if (raw) return withPersona(migrate(JSON.parse(raw) as AppState))
-  } catch {
-    /* ignore */
-  }
-
-  return withPersona(createEmpty())
+  const res = await fetch('/api/state')
+  if (!res.ok) throw new Error('Не удалось загрузить доску')
+  const remote = await res.json()
+  if (remote === null) return withPersona(createEmpty())
+  if (!remote || !Array.isArray(remote.items)) throw new Error('Сервер вернул некорректные данные')
+  return withPersona(migrate(remote as AppState))
 }
 
 export async function loadRemoteIfNewer(localUpdatedAt: number): Promise<AppState | null> {
@@ -75,11 +60,13 @@ export type SaveStateResult = {
   updatedAt: number
   preservedIds: string[]
   conflict?: boolean
+  error?: string
 }
 
 export async function saveState(
   state: AppState,
   baseUpdatedAt?: number,
+  deletedRoots: string[] = [],
 ): Promise<SaveStateResult | null> {
   const { currentMemberId, ...board } = state
   const payload = JSON.stringify(board)
@@ -89,13 +76,17 @@ export async function saveState(
     if (Number.isFinite(baseUpdatedAt)) {
       headers['X-Funban-Base-Updated-At'] = String(baseUpdatedAt)
     }
+    if (deletedRoots.length) headers['X-Funban-Deleted-Roots'] = JSON.stringify(deletedRoots)
     const response = await fetch('/api/state', {
       method: 'PUT',
       headers,
       body: payload,
     })
     if (response.status === 409) {
-      const result = (await response.json()) as { currentUpdatedAt?: number }
+      const result = (await response.json()) as { currentUpdatedAt?: number; error?: string }
+      if (Number(result.currentUpdatedAt) === Number(baseUpdatedAt)) {
+        return { ok: false, updatedAt: Number(result.currentUpdatedAt) || 0, preservedIds: [], error: result.error || 'Сервер отклонил сохранение' }
+      }
       return {
         ok: false,
         conflict: true,
@@ -103,7 +94,11 @@ export async function saveState(
         preservedIds: [],
       }
     }
-    if (!response.ok) return null
+    if (!response.ok) {
+      if (response.status >= 500 || response.status === 429) return null
+      const details = await response.json().catch(() => ({})) as { error?: string }
+      return { ok: false, updatedAt: 0, preservedIds: [], error: details.error || `Ошибка сохранения (${response.status})` }
+    }
     const result = (await response.json()) as Partial<SaveStateResult>
     return {
       ok: result.ok === true,
@@ -246,6 +241,14 @@ export function itemScore(item: Item, criteria: Criterion[]): number | null {
   }
   if (!plusCount) return null
   return Math.round((plus / plusCount) * penalty * 100) / 10
+}
+
+export function isInlineImage(mime: string) {
+  return /^(image\/(png|jpeg|webp|gif))$/i.test(mime)
+}
+
+export function isInlineVideo(mime: string) {
+  return /^(video\/(mp4|webm|ogg))$/i.test(mime)
 }
 
 export function filesToAttachments(files: FileList | File[]) {

@@ -1,0 +1,94 @@
+/** Run these checks from /__test/preview in the Codex preview, against disposable data. */
+import { createEmpty } from '../src/seed'
+import { filesToAttachments } from '../src/storage'
+import { mergeBoards } from '../src/merge-state'
+import { mondayOf } from '../src/dates'
+import type { AppState, Item } from '../src/types'
+
+const out = document.querySelector<HTMLPreElement>('#results')!
+const resultList: { name: string; ok: boolean; detail?: string }[] = []
+function assert(ok: unknown, detail: string): asserts ok { if (!ok) throw new Error(detail) }
+function item(id: string, extra: Partial<Item> = {}): Item {
+  return { id, title: `ТЕСТ ${id}`, body: 'Исходное описание', lane: 'inbox', sprintId: null, parentId: null, relatedIds: [], assigneeId: null, authorId: 'm1', scores: {}, attachments: [], stickers: [], createdAt: Date.now(), archivedAt: null, ...extra }
+}
+function fixture(): AppState {
+  const s = createEmpty()
+  s.sprints[0].goal = 'Изолированная регрессионная проверка'
+  s.items = [item('root', { title: 'ТЕСТ Каскадное удаление', relatedIds: ['peer'] }), ...Array.from({ length: 7 }, (_, i) => item(`child-${i}`, { parentId: 'root' })), item('grandchild', { parentId: 'child-0' }), item('peer', { title: 'ТЕСТ Сохранить эту задачу', relatedIds: ['root', 'child-0', 'grandchild'] }), item('single', { title: 'ТЕСТ Одиночное удаление' }), item('duplicate-archive', { title: 'Совпадающее название', lane: 'archive', archivedAt: Date.now() }), item('duplicate-live', { title: 'Совпадающее название', body: 'Верный кандидат' }), item('search', { title: 'Ёжик в архиве', body: 'Редкая фраза для поиска', lane: 'archive', archivedAt: Date.now() }), item('move', { title: 'ТЕСТ Переносы', lane: 'todo', sprintId: mondayOf() })]
+  s.comments = ['root', 'child-0', 'grandchild', 'peer'].map((id) => ({ id: `comment-${id}`, itemId: id, authorId: 'm1', text: `Комментарий ${id}`, createdAt: Date.now() }))
+  return s
+}
+async function reset(s = fixture()) { const r = await fetch('/__test/reset', { method: 'POST', body: JSON.stringify(s) }); assert(r.ok, `reset ${r.status}`); return s }
+async function state(): Promise<AppState> { const r = await fetch('/__test/direct/api/state'); assert(r.ok, `GET ${r.status}`); return r.json() }
+async function save(s: AppState, deleted: string[] = []) { return fetch('/__test/direct/api/state', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Funban-Base-Updated-At': String(s.updatedAt), 'X-Funban-Deleted-Roots': JSON.stringify(deleted) }, body: JSON.stringify(s) }) }
+async function move(input: unknown, id = 'move') { return fetch(`/__test/direct/api/items/${id}/move`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }) }
+async function rpc(method: string, params: unknown = {}, token = 'preview-only-token') {
+  const r = await fetch('/__test/direct/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token}`, 'MCP-Protocol-Version': '2025-03-26' }, body: JSON.stringify({ jsonrpc: '2.0', id: crypto.randomUUID(), method, params }) })
+  assert(r.ok, `MCP ${r.status}: ${await r.clone().text()}`)
+  const text = await r.text()
+  const body = r.headers.get('content-type')?.includes('text/event-stream') ? [...text.matchAll(/^data: (.+)$/gm)].map(m => JSON.parse(m[1])).find(m => m.result || m.error) : JSON.parse(text)
+  assert(body && !body.error, JSON.stringify(body?.error)); return body.result
+}
+function toolJson(result: { content: { type: string; text?: string }[]; isError?: boolean }) {
+  const body = JSON.parse(result.content.find(c => c.type === 'text')?.text ?? '{}')
+  assert(!result.isError, JSON.stringify(body)); return body
+}
+async function check(name: string, action: () => Promise<void> | void) { try { await action(); resultList.push({ name, ok: true }) } catch (e) { resultList.push({ name, ok: false, detail: String(e) }) } out.textContent = JSON.stringify(resultList, null, 2) }
+function graphValid(s: AppState) { const ids = new Set(s.items.map(i => i.id)); return s.items.every(i => !i.parentId || ids.has(i.parentId)) && s.comments.every(c => ids.has(c.itemId)) && s.items.every(i => i.relatedIds.every(id => ids.has(id))) }
+async function run() {
+  resultList.length = 0
+  await check('Состояние и компактные вложения', async () => { await reset(); const s = await state(); assert(s.items.length === 15, `items ${s.items.length}`); assert(!Object.hasOwn(s, '_funbanMetadata'), 'Служебные метаданные раскрыты') })
+  await check('Серверная версия не зависит от часов клиента', async () => { await reset(); const s = await state(); const base = s.updatedAt; s.updatedAt = 9999999999999; const r = await fetch('/__test/direct/api/state', { method: 'PUT', headers: { 'X-Funban-Base-Updated-At': String(base) }, body: JSON.stringify(s) }); const b = await r.json(); assert(r.ok && b.updatedAt < 9999999999999, JSON.stringify(b)) })
+  await check('Устаревшая версия отклоняется без потери данных', async () => { await reset(); const s = await state(); const old = structuredClone(s); s.items[0].body = 'Команда'; assert((await save(s)).ok, 'Первая запись'); old.items[1].body = 'Вкладка'; assert((await save(old)).status === 409, 'Нет конфликта'); assert((await state()).items[0].body === 'Команда', 'Правка потеряна') })
+  const invalidCases: [string, (s: AppState) => void][] = [
+    ['неизвестный статус', s => { s.items[0].lane = 'INVALID' as Item['lane'] }],
+    ['дубликат ID', s => { s.items.push(structuredClone(s.items[0])) }],
+    ['ссылка на удалённого родителя', s => { s.items[0].parentId = 'missing' }],
+    ['цикл родителей', s => { s.items[0].parentId = 'child-0' }],
+    ['родитель сам себе', s => { s.items[0].parentId = 'root' }],
+    ['несуществующий спринт', s => { s.items[0].sprintId = 'missing' }],
+    ['некорректная дата спринта', s => { s.sprints.push({ id:'wrong',weekStart:'wrong',goal:'',goalClosed:false,closed:false }) }],
+    ['несогласованные ID и дата спринта', s => { s.sprints[0].weekStart = '2099-01-05' }],
+    ['несуществующий автор', s => { s.items[0].authorId = 'missing' }],
+    ['комментарий к отсутствующей задаче', s => { s.comments[0].itemId = 'missing' }],
+    ['ссылка на отсутствующую задачу', s => { s.items[0].relatedIds = ['missing'] }],
+    ['нечисловая оценка', s => { s.items[0].scores = { 'c-reach': 'NaN' as unknown as number } }],
+    ['повреждённый файл', s => { s.items[0].attachments = [{ id:'bad',name:'x',mime:'text/plain',dataUrl:'/api/attachments/missing' }] }],
+  ]
+  for (const [name, change] of invalidCases) await check(`Валидация: ${name}`, async () => { await reset(); const s = await state(); const version = s.updatedAt; change(s); const r = await save(s); assert(r.status === 400, `Принято: ${r.status}`); assert((await state()).updatedAt === version, 'Неверный документ записан') })
+  await check('Защита от неявного массового удаления', async () => { await reset(); const s = await state(); s.items = []; s.comments = []; assert((await save(s)).status === 409, 'Пустая доска принята'); assert((await state()).items.length === 15, 'Задачи потеряны') })
+  await check('Явное удаление дерева > 5 задач с очисткой связей', async () => { await reset(); const s = await state(); const removed = new Set(['root',...Array.from({length:7},(_,i)=>`child-${i}`),'grandchild']); s.items = s.items.filter(i => !removed.has(i.id)).map(i => ({...i, relatedIds:i.relatedIds.filter(id => !removed.has(id))})); s.comments = s.comments.filter(c => !removed.has(c.itemId)); assert((await save(s,['root'])).ok,'Каскад заблокирован'); const saved=await state(); assert(saved.items.length===6 && graphValid(saved),'Нарушена целостность'); assert(saved.comments.length===1,'Комментарии остались') })
+  await check('Удаление последней задачи', async () => { const s=fixture(); s.items=[item('single')];s.comments=[];await reset(s);s.items=[];assert((await save(s,['single'])).ok,'Пустая доска заблокирована');assert((await state()).items.length===0,'Удаление откатилось') })
+  await check('Последнюю связь можно удалить', async () => { await reset();const s=await state();s.items.forEach(i=>{i.relatedIds=[]});assert((await save(s)).ok,'Запись');assert((await state()).items.every(i=>!i.relatedIds.length),'Связь вернулась') })
+  await check('Создание недели при переносе', async () => { await reset();const r=await move({lane:'todo',sprintId:'2099-01-05',requestId:'week'});assert(r.ok,`move ${r.status}`);const s=await state();assert(s.sprints.some(s=>s.id==='2099-01-05'),'Неделя отсутствует') })
+  for (const value of ['2099-01-06','2099-02-30','wrong']) await check(`Перенос отклоняет неделю ${value}`, async () => {await reset();assert((await move({lane:'todo',sprintId:value})).status===400,'Принята неверная неделя')})
+  await check('Бэклог очищает привязку к спринту',async()=>{await reset();assert((await move({lane:'backlog'})).ok,'Перенос');assert((await state()).items.find(i=>i.id==='move')?.sprintId===null,'Спринт остался')})
+  await check('Повтор операции после полной записи',async()=>{await reset();const input={lane:'doing',requestId:'repeat'};const first=await(await move(input)).json();const s=await state();s.items[0].body='Правка';assert((await save(s)).ok,'Запись');const second=await(await move(input)).json();assert(second.deduplicated && second.updatedAt===first.updatedAt,'Повтор применён')})
+  for(const requestId of ['constructor','__proto__','toString']) await check(`Идемпотентность с requestId ${requestId}`,async()=>{await reset();const r=await move({lane:'doing',requestId});assert(r.ok,'Запрос');const s=await state();assert(s.items.find(i=>i.id==='move')?.lane==='doing','Операция пропущена из-за унаследованного свойства')})
+  await check('Повреждённый URL не останавливает сервер',async()=>{await reset();assert((await fetch('/__test/direct/%ZZ')).status===400,'Не 400');assert((await fetch('/__test/direct/api/health')).ok,'Сервер остановлен')})
+  await check('PDF/видео/HTML отдаются безопасно и без потерь',async()=>{await reset();const s=await state();s.items[0].attachments=[{id:'pdf',name:'файл.pdf',mime:'application/pdf',dataUrl:'data:application/pdf;base64,JVBERi0xLjQ='},{id:'video',name:'video.mp4',mime:'video/mp4',dataUrl:'data:video/mp4;base64,AAAAAA=='},{id:'html',name:'page.html',mime:'text/html',dataUrl:'data:text/html;base64,PGI+aGk8L2I+'}];assert((await save(s)).ok,'Вложения не приняты');for(const id of ['pdf','video','html']){const r=await fetch(`/__test/direct/api/attachments/${id}`);assert(r.ok,`${id} ${r.status}`);assert((await r.arrayBuffer()).byteLength>0,'Пустой файл');if(id!=='video')assert(r.headers.get('content-disposition')?.startsWith('attachment;'),'Нет скачивания')}})
+  await check('Файлы без MIME-типа и пустые файлы скачиваются',async()=>{await reset();const s=await state();s.items[0].attachments=await filesToAttachments([new File(['unknown content'],'custom.xyz'),new File([],'empty.bin')]);assert((await save(s)).ok,'Файлы не сохранены');for(const a of s.items[0].attachments){const r=await fetch(`/__test/direct/api/attachments/${a.id}`);assert(r.ok,`${a.name} ${r.status}`);assert((await r.arrayBuffer()).byteLength===(a.name==='empty.bin'?0:15),'Размер изменился')}})
+  await check('MCP: доступ без токена закрыт',async()=>{await reset();const r=await fetch('/__test/direct/mcp',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert(r.status===401,`MCP ${r.status}`)})
+  await check('MCP: контекст и список инструментов',async()=>{await reset();const tools=await rpc('tools/list');assert(tools.tools.length===5,'Список инструментов');const context=toolJson(await rpc('tools/call',{name:'get_context',arguments:{}}));assert(context.members.length===5,'Участники')})
+  await check('MCP: создание, повтор, поиск, редактирование, связи',async()=>{await reset();toolJson(await rpc('tools/call',{name:'search_tasks',arguments:{query:'ТЕСТ Переносы',limit:10}}));const input={requestId:'preview-create-001',title:'ТЕСТ MCP отдельная задача',description:'Проверка API из превью',lane:'todo',sprint:'next',assigneeName:'Саша',relatedTaskIds:['move'],relationSearchQueries:['ТЕСТ Переносы'],relationDecision:'Связана с проверкой переносов задач через API'};const created=toolJson(await rpc('tools/call',{name:'create_task',arguments:input}));const repeated=toolJson(await rpc('tools/call',{name:'create_task',arguments:input}));assert(repeated.deduplicated&&created.task.id===repeated.task.id,'Создан дубликат');const found=toolJson(await rpc('tools/call',{name:'search_tasks',arguments:{query:'MCP отдельная',limit:10}}));assert(found.some((i:{id:string})=>i.id===created.task.id),'Поиск не нашёл задачу');const updated=toolJson(await rpc('tools/call',{name:'update_task',arguments:{requestId:'preview-update-001',taskId:created.task.id,lane:'doing',assigneeName:'Ваня'}}));assert(updated.task.assignee.name==='Ваня'&&updated.task.sprintId===created.task.sprintId,'Обновление потеряло данные');toolJson(await rpc('tools/call',{name:'link_tasks',arguments:{requestId:'preview-link-001',taskId:created.task.id,relatedTaskIds:['single']}}));const s=await state();assert(s.items.find(i=>i.id==='single')!.relatedIds.includes(created.task.id),'Нет обратной связи');assert(s.items.filter(i=>i.id===created.task.id).length===1,'Дубликат')})
+  await check('Merge: независимые изменения',()=>{const b=fixture(),l=structuredClone(b),r=structuredClone(b);l.items[0].body='Локально';r.items[1].body='Команда';const m=mergeBoards(b,l,r);assert(!m.conflicts.length && m.state.items[0].body==='Локально' && m.state.items[1].body==='Команда','Изменения потеряны')})
+  await check('Merge: конфликт одного поля',()=>{const b=fixture(),l=structuredClone(b),r=structuredClone(b);l.items[0].body='Локально';r.items[0].body='Команда';assert(mergeBoards(b,l,r).conflicts.length===1,'Конфликт скрыт');assert(mergeBoards(b,l,r,'remote').state.items[0].body==='Команда','Выбор не применён')})
+  for(const change of ['comment','child','link','edit'])for(const choice of ['local','remote'] as const)await check(`Merge: удаление + ${change}, выбор ${choice}`,()=>{const b=fixture(),l=structuredClone(b),r=structuredClone(b);const ids=new Set(['root',...Array.from({length:7},(_,i)=>`child-${i}`),'grandchild']);l.items=l.items.filter(i=>!ids.has(i.id)).map(i=>({...i,relatedIds:i.relatedIds.filter(id=>!ids.has(id))}));l.comments=l.comments.filter(c=>!ids.has(c.itemId));if(change==='comment')r.comments.push({id:'new',itemId:'root',authorId:'m2',text:'Новый комментарий',createdAt:Date.now()});if(change==='child')r.items.push(item('new-child',{parentId:'root'}));if(change==='link')r.items.find(i=>i.id==='single')!.relatedIds=['root'];if(change==='edit')r.items.find(i=>i.id==='grandchild')!.body='Чужая правка';const m=mergeBoards(b,l,r,choice);assert(m.conflicts.length>0,'Удаление с чужими зависимыми правками должно потребовать выбора');assert(graphValid(m.state),'Получился осиротевший граф');if(choice==='local')assert(!m.state.items.some(i=>i.id==='root'),'Удаление потеряно');else assert(m.state.items.some(i=>i.id==='root'),'Родитель не восстановлен')})
+  for(const change of ['comment','child','link','edit'])for(const choice of ['local','remote'] as const)await check(`Merge: удаление командой + ${change}, выбор ${choice}`,()=>{const b=fixture(),r=structuredClone(b),l=structuredClone(b);const ids=new Set(['root',...Array.from({length:7},(_,i)=>`child-${i}`),'grandchild']);r.items=r.items.filter(i=>!ids.has(i.id)).map(i=>({...i,relatedIds:i.relatedIds.filter(id=>!ids.has(id))}));r.comments=r.comments.filter(c=>!ids.has(c.itemId));if(change==='comment')l.comments.push({id:'new',itemId:'root',authorId:'m2',text:'Новый комментарий',createdAt:Date.now()});if(change==='child')l.items.push(item('new-child',{parentId:'root'}));if(change==='link')l.items.find(i=>i.id==='single')!.relatedIds=['root'];if(change==='edit')l.items.find(i=>i.id==='grandchild')!.body='Локальная правка';const m=mergeBoards(b,l,r,choice);assert(m.conflicts.length>0,'Конфликт скрыт');assert(graphValid(m.state),'Осиротевший граф');assert(m.state.items.some(i=>i.id==='root')===(choice==='local'),'Выбор не сохранён')})
+  out.textContent = JSON.stringify({ passed: resultList.filter(r=>r.ok).length, failed: resultList.filter(r=>!r.ok).length, results:resultList },null,2)
+}
+const controls={
+  run,
+  seed:async()=>{await reset();out.textContent='Подготовлено 15 тестовых задач. Данные одноразовые, разрешено удалять.'},
+  inspect:async()=>{const s=await state();const attachments=await Promise.all(s.items.flatMap(i=>i.attachments).map(async a=>{const r=await fetch('/__test/direct'+a.dataUrl);const body=await r.arrayBuffer();const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',body))).map(v=>v.toString(16).padStart(2,'0')).join('');return {id:a.id,name:a.name,status:r.status,bytes:body.byteLength,hash,mime:r.headers.get('content-type'),disposition:r.headers.get('content-disposition')}}));out.textContent=JSON.stringify({state:s,attachments,network:await(await fetch('/__test/control')).json()},null,2)},
+  fail:async()=>{await fetch('/__test/control',{method:'POST',body:JSON.stringify({failWrites:true})});out.textContent='Сбой записи включён'},
+  reject:async()=>{await fetch('/__test/control',{method:'POST',body:JSON.stringify({rejectWrites:true})});out.textContent='Запись отклоняется с 422'},
+  recover:async()=>{await fetch('/__test/control',{method:'POST',body:JSON.stringify({failWrites:false,rejectWrites:false,freezePoll:false,delayWrite:0,delayMove:0})});out.textContent='Связь восстановлена'},
+  freeze:async()=>{await fetch('/__test/control',{method:'POST',body:JSON.stringify({freezePoll:true})});out.textContent='Опрос остановлен'},
+  reorder:async()=>{await fetch('/__test/control',{method:'POST',body:JSON.stringify({delayNextMove:2500})});out.textContent='Первый перенос задержан на 2500 мс'},
+  slow:async()=>{await fetch('/__test/control',{method:'POST',body:JSON.stringify({delayWrite:1800,delayMove:1200})});out.textContent='Задержка запросов включена'},
+  remote:async()=>{const s=await state();s.items.find(i=>i.id==='single')!.body='Версия команды';assert((await save(s)).ok,'Не сохранено');out.textContent='Сервер изменил описание single'},
+  remoteComment:async()=>{const s=await state();s.comments.push({id:crypto.randomUUID(),itemId:'root',authorId:'m2',text:'Новый комментарий команды',createdAt:Date.now()});assert((await save(s)).ok,'Не сохранено');out.textContent='Добавлен комментарий команды к root'},
+  single:async()=>{const s=fixture();s.items=[item('single',{title:'ТЕСТ Последняя задача'})];s.comments=[];await reset(s);out.textContent='Подготовлена последняя задача'},
+}
+for(const [id,action]of Object.entries(controls))document.querySelector<HTMLButtonElement>(`#${id}`)!.onclick=()=>void Promise.resolve(action()).catch(e=>{out.textContent=String(e)})

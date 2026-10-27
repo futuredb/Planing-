@@ -4,7 +4,7 @@ import { Avatar } from '../Avatar'
 import { AuthorMeta } from '../AuthorMeta'
 import { memberDropBind } from '../member'
 import { ReactionBar } from '../StickerBar'
-import { filesToAttachments } from '../storage'
+import { filesToAttachments, isInlineImage, isInlineVideo } from '../storage'
 import { useStore } from '../store-context'
 import type { Attachment, Item, Lane } from '../types'
 import { Icon } from '../ui/Icon'
@@ -30,6 +30,9 @@ export function Drawer({
 }) {
   const {
     state,
+    syncStatus,
+    syncError,
+    retrySave,
     weekId,
     updateItem,
     removeItem,
@@ -38,6 +41,7 @@ export function Drawer({
     moveItem,
     decompose,
     linkTasks,
+    linkExistingTask,
     unlinkTask,
     setScore,
     addComment,
@@ -68,14 +72,6 @@ export function Drawer({
     document.body.classList.add('modal-open')
     return () => document.body.classList.remove('modal-open')
   }, [])
-
-  useEffect(() => {
-    if (!titleFocused) setTitleDraft(item.title)
-  }, [item.id, item.title, titleFocused])
-
-  useEffect(() => {
-    if (!bodyFocused) setBodyDraft(item.body)
-  }, [bodyFocused, item.body, item.id])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -145,7 +141,7 @@ export function Drawer({
             <div className="drawer-heading">
               <span className={`lane-badge lane-${item.lane}`}>{laneName(item.lane)}</span>
               <AgentBadge item={item} />
-              <span className="autosave">Сохраняется автоматически</span>
+              <span className={`autosave autosave-${syncStatus}`} aria-live="polite">{{ saved: 'Сохранено', saving: 'Сохраняем…', retry: 'Не сохранено, повторяем…', error: 'Не удалось сохранить', conflict: 'Нужно разрешить конфликт' }[syncStatus]}</span>
             </div>
             <div className="drawer-head-actions">
               <div className="menu-wrap">
@@ -174,6 +170,10 @@ export function Drawer({
             </div>
           </header>
 
+          {syncStatus === 'error' ? <div className="drawer-sync-error" role="status">
+            <span>{syncError || 'Не удалось сохранить изменения'}</span>
+            <button type="button" className="text-button" onClick={retrySave}>Повторить</button>
+          </div> : null}
           <nav className="drawer-tabs" aria-label="Разделы задачи">
             {tabs.map((entry) => (
               <button
@@ -300,7 +300,7 @@ export function Drawer({
                     <div className="thumbs">
                       {item.attachments.map((attachment) => (
                         <figure key={attachment.id} className="thumb-item">
-                          <button type="button" className="thumb-open" onClick={() => setPreview(attachment)}>
+                          <button type="button" className="thumb-open" aria-label={attachment.name} onClick={() => setPreview(attachment)}>
                             <AttachmentThumb attachment={attachment} />
                           </button>
                           <button
@@ -376,7 +376,7 @@ export function Drawer({
                   onValueChange={(candidateId) => {
                     setLinkTargetId(candidateId)
                     const candidate = state.items.find((entry) => entry.id === candidateId)
-                    if (candidate) linkTasks(item.id, [candidate.title])
+                    if (candidate) linkExistingTask(item.id, candidate.id)
                     setLinkTargetId('')
                   }}
                   ariaLabel="Выбрать связанную задачу"
@@ -517,10 +517,10 @@ export function Drawer({
 }
 
 function AttachmentThumb({ attachment }: { attachment: Attachment }) {
-  if (attachment.mime.startsWith('image/')) {
+  if (isInlineImage(attachment.mime)) {
     return <img src={attachment.dataUrl} alt={attachment.name} />
   }
-  if (attachment.mime.startsWith('video/')) {
+  if (isInlineVideo(attachment.mime)) {
     return <video src={attachment.dataUrl} muted playsInline preload="metadata" />
   }
   return (
@@ -538,11 +538,11 @@ function AttachmentPreview({
   attachment: Attachment
   onClick: (event: MouseEvent<HTMLElement>) => void
 }) {
-  if (attachment.mime.startsWith('image/')) {
+  if (isInlineImage(attachment.mime)) {
     return <img src={attachment.dataUrl} alt={attachment.name} onClick={onClick} />
   }
-  if (attachment.mime.startsWith('video/')) {
-    return <video src={attachment.dataUrl} controls autoPlay onClick={onClick} />
+  if (isInlineVideo(attachment.mime)) {
+    return <video src={attachment.dataUrl} aria-label={attachment.name} controls autoPlay playsInline onClick={onClick} />
   }
   return (
     <a className="file-preview-card" href={attachment.dataUrl} download={attachment.name} onClick={onClick}>

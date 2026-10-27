@@ -28,7 +28,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'FUNBAN_DATA=output/playwright/state.json npm run dev -- --host 127.0.0.1 --port 4174',
+    command: 'node tests/e2e-server.mjs',
     url: 'http://127.0.0.1:4174',
     reuseExistingServer: false,
     timeout: 30_000,

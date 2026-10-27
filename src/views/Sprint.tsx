@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
 import { AuthorMeta } from '../AuthorMeta'
@@ -39,10 +39,6 @@ export function Sprint({ onOpen }: { onOpen: (id: string) => void }) {
     goal.style.height = 'auto'
     goal.style.height = `${goal.scrollHeight}px`
   }, [goalDraft, sprint?.goal, weekId])
-
-  useEffect(() => {
-    if (!goalFocused) setGoalDraft(sprint?.goal ?? '')
-  }, [goalFocused, sprint?.goal, weekId])
 
   function onDrop(lane: Lane, event: DragEvent) {
     const id = event.dataTransfer.getData('text/id')

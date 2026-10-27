@@ -174,7 +174,7 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
   const moved = await fetch(`${rootUrl}api/items/existing-1/move`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lane: 'doing', requestId: 'browser-move-001' }),
+    body: JSON.stringify({ lane: 'doing', sprintId: '2026-10-26', requestId: 'browser-move-001' }),
   })
   assert.equal(moved.status, 200)
   assert.equal((await moved.json()).lane, 'doing')

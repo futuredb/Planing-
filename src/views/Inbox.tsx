@@ -170,7 +170,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
                     {author ? (
                       <>
                         <AuthorMeta item={item} members={state.members} actors={state.actors} />
-                        <RoleChip roleId={state.roles?.[author.id]} />
+                        {state.members.some((member) => member.id === author.id) ? <RoleChip roleId={state.roles?.[author.id]} /> : null}
                       </>
                     ) : null}
                     {item.attachments.length ? <span>{item.attachments.length} файл.</span> : null}

@@ -29,7 +29,7 @@ export function attributeChanges(previous, incoming, actor) {
   const items = new Map((previous?.items ?? []).map((item) => [item.id, item]))
   const comments = new Map((previous?.comments ?? []).map((comment) => [comment.id, comment]))
   const immutableAuthor = (old, entry, field) => {
-    if (old && old[field] !== entry[field]) throw new Error('Нельзя менять автора существующей записи')
+    if (old && (old[field] ?? null) !== (entry[field] ?? null)) throw new Error('Нельзя менять автора существующей записи')
     return old ? old[field] : actor.id
   }
   return {

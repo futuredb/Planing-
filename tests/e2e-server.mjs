@@ -15,7 +15,7 @@ const events = []
 let child
 async function start() {
   child = spawn(process.execPath, ['server.mjs'], {
-    env: { ...process.env, NODE_ENV: 'test', HOST: '127.0.0.1', PORT: String(serverPort), FUNBAN_DATA: dataFile, FUNBAN_PUBLIC_URL: `http://127.0.0.1:${port}/`, FUNBAN_WEB_PASSWORD: '', FUNBAN_MCP_TOKEN: process.env.FUNBAN_TEST_MCP_TOKEN || '', DASHBOARD_INGEST_URL: '', DASHBOARD_INGEST_TOKEN: '' },
+    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(serverPort), FUNBAN_DATA: dataFile, FUNBAN_PUBLIC_URL: `http://127.0.0.1:${port}/`, FUNBAN_MCP_TOKEN: process.env.FUNBAN_TEST_MCP_TOKEN || '', DASHBOARD_INGEST_URL: '', DASHBOARD_INGEST_TOKEN: '' },
     stdio: 'inherit',
   })
   for (let attempt = 0; attempt < 100; attempt++) {

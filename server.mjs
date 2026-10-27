@@ -23,8 +23,6 @@ const port = Number(process.env.PORT || 3000)
 const host = process.env.HOST || '0.0.0.0'
 const publicUrl = process.env.FUNBAN_PUBLIC_URL || 'https://funban.future-db.ru/'
 const mcpToken = process.env.FUNBAN_MCP_TOKEN || ''
-const webPassword = process.env.FUNBAN_WEB_PASSWORD || ''
-const webAuthRequired = process.env.NODE_ENV === 'production' || Boolean(webPassword)
 const allowedMcpHostnames = [
   new URL(publicUrl).hostname,
   'localhost',
@@ -127,18 +125,6 @@ function safeFile(urlPath) {
   return file
 }
 
-function hasWebAccess(req) {
-  const header = String(req.headers.authorization || '')
-  if (!header.startsWith('Basic ')) return false
-  let credentials
-  try { credentials = Buffer.from(header.slice(6), 'base64').toString('utf8') } catch { return false }
-  const split = credentials.indexOf(':')
-  if (split < 0 || credentials.slice(0, split) !== 'funban') return false
-  const actual = Buffer.from(credentials.slice(split + 1))
-  const expected = Buffer.from(webPassword)
-  return expected.length > 0 && actual.length === expected.length && timingSafeEqual(actual, expected)
-}
-
 async function handleRequest(req, res) {
   httpMiddleware()(req,res);
   const url = req.url || '/'
@@ -173,17 +159,6 @@ async function handleRequest(req, res) {
     return
   }
 
-  if (webAuthRequired) {
-    if (!webPassword) {
-      send(res, 503, 'Установите FUNBAN_WEB_PASSWORD для доступа к Funban')
-      return
-    }
-    if (!hasWebAccess(req)) {
-      res.setHeader('WWW-Authenticate', 'Basic realm="Funban", charset="UTF-8"')
-      send(res, 401, 'Требуется вход')
-      return
-    }
-  }
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method) && req.headers.origin) {
     const origin = new URL(req.headers.origin)
     const requestHost = String(req.headers.host || '')

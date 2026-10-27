@@ -277,7 +277,7 @@ test('идея быстро добавляется во входящие', async
   await page.getByRole('button', { name: 'Входящие', exact: true }).click()
   await page.getByLabel('Название идеи').fill('Проверить новый сценарий')
   const author = page.getByRole('combobox', { name: 'Кто добавляет на разбор' })
-  await expect(author).toContainText('Не указано')
+  await expect(author).toContainText('Лиля')
   await expect(author).toHaveAttribute('aria-expanded', 'false')
   await author.click()
   await expect(author).toHaveAttribute('aria-expanded', 'true')
@@ -362,7 +362,7 @@ test('поиск в шапке находит задачи по названию
   await page.getByRole('button', { name: 'Поиск задач', exact: true }).click()
   const search = page.getByRole('searchbox', { name: 'Найти задачу' })
   await search.fill('менеджер копирует')
-  await page.getByRole('button', { name: /Автозаполнение реквизитов в онбординге/ }).click()
+  await page.locator('.search-results').getByRole('button', { name: /Автозаполнение реквизитов в онбординге/ }).click()
   await expect(page.getByRole('dialog', { name: 'Задача: Автозаполнение реквизитов в онбординге' })).toBeVisible()
 })
 

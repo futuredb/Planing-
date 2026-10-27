@@ -6,7 +6,7 @@ import { cardDropBind } from '../card-drop'
 import { readMemberDrop } from '../member'
 import { RoleChip } from '../RoleChip'
 import { ReactionBar } from '../StickerBar'
-import { filesToAttachments } from '../storage'
+import { filesToAttachments, isInlineImage, isInlineVideo } from '../storage'
 import { useStore } from '../store-context'
 import type { Attachment } from '../types'
 import { Icon } from '../ui/Icon'
@@ -17,7 +17,8 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [files, setFiles] = useState<Attachment[]>([])
-  const [authorId, setAuthorId] = useState('')
+  const [authorId, setAuthorId] = useState<string | null>(null)
+  const selectedAuthorId = authorId ?? state.currentMemberId
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [over, setOver] = useState(false)
 
@@ -37,10 +38,11 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!title.trim() && !body.trim() && !files.length) return
-    addIdea({ title, body, attachments: files, authorId: authorId || null })
+    addIdea({ title, body, attachments: files, authorId: selectedAuthorId || null })
     setTitle('')
     setBody('')
     setFiles([])
+    setAuthorId(null)
     setDetailsOpen(false)
   }
 
@@ -90,7 +92,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
             <div className="capture-author">
               <span>Кто добавляет</span>
               <Select
-                value={authorId}
+                value={selectedAuthorId}
                 onValueChange={setAuthorId}
                 ariaLabel="Кто добавляет на разбор"
                 options={[
@@ -130,7 +132,10 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
               <input
                 type="file"
                 multiple
-                onChange={(event) => event.target.files && addFiles(event.target.files)}
+                onChange={(event) => {
+                  if (event.target.files) void addFiles(event.target.files)
+                  event.target.value = ''
+                }}
               />
             </label>
           </div>
@@ -213,10 +218,10 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
 }
 
 function AttachmentThumb({ attachment }: { attachment: Attachment }) {
-  if (attachment.mime.startsWith('image/')) {
+  if (isInlineImage(attachment.mime)) {
     return <img src={attachment.dataUrl} alt={attachment.name} />
   }
-  if (attachment.mime.startsWith('video/')) {
+  if (isInlineVideo(attachment.mime)) {
     return <video src={attachment.dataUrl} muted playsInline preload="metadata" />
   }
   return (

@@ -5,7 +5,7 @@ import { useStore } from '../store-context'
 import { Icon } from '../ui/Icon'
 
 export function Team({ onShuffle }: { onShuffle: () => void }) {
-  const { state, patchMember } = useStore()
+  const { state, patchMember, setCurrentMember } = useStore()
 
   function setPhoto(id: string, file: File | undefined) {
     if (!file || !file.type.startsWith('image/')) return
@@ -49,6 +49,10 @@ export function Team({ onShuffle }: { onShuffle: () => void }) {
                 <div className="role-assignment">
                   <RoleChip roleId={state.roles?.[member.id]} />
                   <p className="role-description">{role?.hint ?? 'Роль пока не распределена.'}</p>
+                  <button type="button" className="text-button" onClick={() => setCurrentMember(member.id)}
+                    aria-pressed={state.currentMemberId === member.id}>
+                    {state.currentMemberId === member.id ? 'Это вы' : 'Это я'}
+                  </button>
                 </div>
               </div>
             </li>

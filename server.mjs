@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { hostHeaderValidation, originValidation, toNodeHandler } from '@modelcontextprotocol/node'
 import { createFunbanMcpHandler } from './funban-mcp.mjs'
 import { createStateRepository } from './state-repository.mjs'
+import { moveTask } from './state-operations.mjs'
 import { decodeImageDataUrl, findAttachment, stateForClient } from './state-transport.mjs'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
@@ -117,13 +118,14 @@ function hasValidBearerToken(req) {
 }
 
 function safeFile(urlPath) {
-  const clean = decodeURIComponent(urlPath.split('?')[0])
+  let clean
+  try { clean = decodeURIComponent(urlPath.split('?')[0]) } catch { return null }
   const file = path.normalize(path.join(dist, clean === '/' ? 'index.html' : clean))
-  if (!file.startsWith(dist)) return null
+  if (file !== dist && !file.startsWith(`${dist}${path.sep}`)) return null
   return file
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   httpMiddleware()(req,res);
   const url = req.url || '/'
 
@@ -152,8 +154,18 @@ const server = http.createServer(async (req, res) => {
       send(res, 405, 'Method Not Allowed')
       return
     }
+    await repository.read()
     send(res, 200, JSON.stringify({ ok: true }), 'application/json; charset=utf-8')
     return
+  }
+
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method) && req.headers.origin) {
+    const origin = new URL(req.headers.origin)
+    const requestHost = String(req.headers.host || '')
+    if (origin.host !== requestHost && origin.origin !== new URL(publicUrl).origin) {
+      send(res, 403, 'Недопустимый источник запроса')
+      return
+    }
   }
 
   if (url.startsWith('/api/attachments/')) {
@@ -172,6 +184,7 @@ const server = http.createServer(async (req, res) => {
       }
       res.setHeader('X-Content-Type-Options', 'nosniff')
       res.setHeader('Cache-Control', 'private, max-age=31536000, immutable')
+      if (!decoded.inline) res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(attachment.name || 'file')}`)
       send(res, 200, decoded.body, decoded.mime)
     } catch {
       send(res, 400, 'Bad attachment id')
@@ -188,40 +201,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const itemId = decodeURIComponent(moveMatch[1])
       const input = JSON.parse(await readBody(req, 8 * 1024))
-      const lanes = new Set(['inbox', 'backlog', 'todo', 'doing', 'done', 'archive'])
-      if (!lanes.has(input.lane)) throw new Error('Некорректный статус задачи')
-      if (input.sprintId !== undefined && input.sprintId !== null && typeof input.sprintId !== 'string') {
-        throw new Error('Некорректный спринт задачи')
-      }
-      const result = await repository.mutate(
-        { action: 'move_task', requestId: typeof input.requestId === 'string' ? input.requestId : null },
-        (state) => {
-          const item = state.items.find((candidate) => candidate.id === itemId)
-          if (!item) {
-            const error = new Error('Задача не найдена')
-            error.statusCode = 404
-            throw error
-          }
-          const sprintId = input.sprintId === undefined ? item.sprintId : input.sprintId
-          return {
-            state: {
-              ...state,
-              items: state.items.map((candidate) =>
-                candidate.id === itemId
-                  ? {
-                      ...candidate,
-                      lane: input.lane,
-                      sprintId,
-                      archivedAt: input.lane === 'archive' ? Date.now() : null,
-                    }
-                  : candidate,
-              ),
-            },
-            touchedIds: [itemId],
-            result: { ok: true, itemId, lane: input.lane, sprintId },
-          }
-        },
-      )
+      const result = await moveTask(repository, itemId, input)
       send(res, 200, JSON.stringify(result), 'application/json; charset=utf-8')
     } catch (error) {
       send(
@@ -243,8 +223,8 @@ const server = http.createServer(async (req, res) => {
         ? await repository.read()
         : await repository.readIfVersion(Number(since))
       if (!state) {
-        res.writeHead(304)
-        res.end()
+        if (since === null) res.end('null')
+        else { res.writeHead(304); res.end() }
         return
       }
       res.end(serializedState(state))
@@ -256,7 +236,10 @@ const server = http.createServer(async (req, res) => {
         const baseHeader = req.headers['x-funban-base-updated-at']
         const parsedBase = Number(Array.isArray(baseHeader) ? baseHeader[0] : baseHeader)
         const baseVersion = Number.isFinite(parsedBase) ? parsedBase : 0
-        const result = await repository.replace(body, baseVersion)
+        const deleteHeader = req.headers['x-funban-deleted-roots']
+        const deletedRoots = deleteHeader ? JSON.parse(String(deleteHeader)) : []
+        if (!Array.isArray(deletedRoots) || deletedRoots.some((id) => typeof id !== 'string')) throw new Error('Некорректный список удалённых задач')
+        const result = await repository.replace(body, baseVersion, deletedRoots)
         res.end(
           JSON.stringify({
             ok: true,
@@ -295,6 +278,14 @@ const server = http.createServer(async (req, res) => {
   }
   const type = mime[path.extname(file)] || 'application/octet-stream'
   send(res, 200, fs.readFileSync(file), type)
+}
+
+const server = http.createServer((req, res) => {
+  void handleRequest(req, res).catch((error) => {
+    console.error('Funban request failed:', error.message)
+    if (!res.headersSent) send(res, 503, 'Сервис временно недоступен')
+    else res.destroy()
+  })
 })
 
 fs.mkdirSync(path.dirname(stateFile), { recursive: true })

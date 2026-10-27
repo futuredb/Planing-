@@ -6,8 +6,10 @@ function attachmentUrl(id) {
 
 export function stateForClient(state) {
   if (!state?.items) return state
+  const { _funbanMetadata, ...clientState } = state
+  void _funbanMetadata
   return {
-    ...state,
+    ...clientState,
     items: state.items.map((item) => ({
       ...item,
       attachments: (item.attachments ?? []).map((attachment) => ({
@@ -58,7 +60,9 @@ export function findAttachment(state, id) {
 
 export function decodeImageDataUrl(dataUrl) {
   if (typeof dataUrl !== 'string') return null
-  const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/.exec(dataUrl)
+  const match = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]*)$/i.exec(dataUrl)
   if (!match) return null
-  return { mime: match[1], body: Buffer.from(match[2], 'base64') }
+  const mime = match[1].toLowerCase()
+  const inline = /^(image\/(png|jpeg|webp|gif)|video\/(mp4|webm|ogg))$/.test(mime)
+  return { mime: inline ? mime : 'application/octet-stream', body: Buffer.from(match[2], 'base64'), inline }
 }

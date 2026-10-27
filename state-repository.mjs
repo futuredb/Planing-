@@ -3,11 +3,11 @@ import path from 'node:path'
 import { restoreAttachmentData } from './state-transport.mjs'
 
 function readJson(file, fallback) {
-  if (!fs.existsSync(file)) return fallback
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'))
-  } catch {
-    return fallback
+  } catch (error) {
+    if (error.code === 'ENOENT') return fallback
+    throw new Error(`Не удалось прочитать данные Funban: ${error.message}`, { cause: error })
   }
 }
 
@@ -18,10 +18,80 @@ function writeAtomic(file, body) {
   fs.renameSync(tmp, file)
 }
 
+export function isSprintWeek(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value && date.getUTCDay() === 1
+}
+
 function assertState(state) {
-  if (!state || typeof state !== 'object' || !Array.isArray(state.items)) {
-    throw new Error('Некорректный формат состояния Funban')
+  const invalid = () => { throw new Error('Некорректный формат состояния Funban') }
+  if (!state || typeof state !== 'object' || !Number.isFinite(state.updatedAt)) invalid()
+  for (const key of ['members', 'criteria', 'sprints', 'items', 'comments']) {
+    if (!Array.isArray(state[key])) invalid()
+    const ids = new Set()
+    for (const entry of state[key]) {
+      if (!entry || typeof entry !== 'object' || typeof entry.id !== 'string' || !entry.id || ids.has(entry.id)) invalid()
+      ids.add(entry.id)
+    }
   }
+  const members = new Set(state.members.map((entry) => entry.id))
+  const sprints = new Set(state.sprints.map((entry) => entry.id))
+  const items = new Set(state.items.map((entry) => entry.id))
+  if (!members.size || !state.roles || typeof state.roles !== 'object' || Array.isArray(state.roles)) invalid()
+  for (const member of state.members) {
+    if (typeof member.name !== 'string' || typeof member.role !== 'string' || typeof member.avatar !== 'string') invalid()
+  }
+  for (const sprint of state.sprints) {
+    if (typeof sprint.goal !== 'string' || typeof sprint.weekStart !== 'string' ||
+        !isSprintWeek(sprint.id) || sprint.weekStart !== sprint.id ||
+        typeof sprint.goalClosed !== 'boolean' || typeof sprint.closed !== 'boolean') invalid()
+  }
+  for (const criterion of state.criteria) {
+    if (typeof criterion.name !== 'string' || typeof criterion.hint !== 'string' ||
+        typeof criterion.invert !== 'boolean' || !Number.isFinite(criterion.weight) ||
+        !Number.isFinite(criterion.max) || criterion.max <= 0 ||
+        !Number.isFinite(criterion.step) || criterion.step <= 0) invalid()
+  }
+  const attachmentIds = new Set()
+  for (const item of state.items) {
+    if (!['inbox', 'backlog', 'todo', 'doing', 'done', 'archive'].includes(item.lane) ||
+      typeof item.title !== 'string' || typeof item.body !== 'string' ||
+      !Array.isArray(item.attachments) || !Array.isArray(item.stickers) ||
+      !Array.isArray(item.relatedIds) || !item.scores || typeof item.scores !== 'object' || Array.isArray(item.scores) ||
+      Object.values(item.scores).some((score) => !Number.isFinite(score)) || !Number.isFinite(item.createdAt) ||
+      (item.archivedAt != null && !Number.isFinite(item.archivedAt)) ||
+      (item.parentId != null && !items.has(item.parentId)) ||
+      (item.sprintId != null && !sprints.has(item.sprintId)) ||
+      (item.assigneeId != null && !members.has(item.assigneeId)) ||
+      (item.authorId != null && !members.has(item.authorId)) ||
+      (['todo', 'doing', 'done'].includes(item.lane) && !item.sprintId) ||
+      item.relatedIds.some((id) => !items.has(id) || id === item.id)) invalid()
+    for (const attachment of item.attachments) {
+      if (!attachment || typeof attachment.id !== 'string' || !attachment.id || attachmentIds.has(attachment.id) ||
+          typeof attachment.name !== 'string' || typeof attachment.mime !== 'string' ||
+          typeof attachment.dataUrl !== 'string' ||
+          !(attachment.dataUrl.startsWith('/api/attachments/') || /^data:[a-z0-9.+-]+\/[a-z0-9.+-]+;base64,/i.test(attachment.dataUrl))) invalid()
+      attachmentIds.add(attachment.id)
+    }
+    for (const sticker of item.stickers) {
+      if (!sticker || typeof sticker.id !== 'string' || typeof sticker.sticker !== 'string' ||
+          !members.has(sticker.by) || !['x', 'y', 'rot', 'scale'].every((key) => Number.isFinite(sticker[key]))) invalid()
+    }
+  }
+  const parents = new Map(state.items.map((item) => [item.id, item.parentId]))
+  const visited = new Set()
+  for (const item of state.items) {
+    const chain = new Set()
+    let id = item.id
+    while (id && !visited.has(id)) {
+      if (chain.has(id)) invalid()
+      chain.add(id)
+      id = parents.get(id)
+    }
+    for (const ancestor of chain) visited.add(ancestor)
+  }
+  for (const comment of state.comments) if (!items.has(comment.itemId) || !members.has(comment.authorId) || typeof comment.text !== 'string' || !Number.isFinite(comment.createdAt)) invalid()
 }
 
 function conflict(message, currentUpdatedAt) {
@@ -31,14 +101,19 @@ function conflict(message, currentUpdatedAt) {
   return error
 }
 
-function assertSafeReplacement(previous, incoming) {
+function assertSafeReplacement(previous, incoming, deletedRoots = []) {
   if (!previous?.items?.length) return
   const incomingIds = new Set(incoming.items.map((item) => item.id))
   const removedCount = previous.items.reduce(
     (count, item) => count + (incomingIds.has(item.id) ? 0 : 1),
     0,
   )
-  if (removedCount > 5 || (incoming.items.length === 0 && previous.items.length > 0)) {
+  const removed = previous.items.filter((item) => !incomingIds.has(item.id))
+  const removedIds = new Set(removed.map((item) => item.id))
+  const roots = removed.filter((item) => !item.parentId || !removedIds.has(item.parentId))
+  const confirmed = new Set(deletedRoots)
+  const isExplicitDeletion = roots.length > 0 && roots.every((item) => confirmed.has(item.id))
+  if (!isExplicitDeletion && ((incoming.items.length === 0 && previous.items.length > 0) || removedCount > 5)) {
     throw conflict(
       `Защита Funban отклонила массовое удаление ${removedCount} задач`,
       previous.updatedAt,
@@ -47,78 +122,11 @@ function assertSafeReplacement(previous, incoming) {
 }
 
 function nextVersion(previous, incoming) {
+  void incoming
   return Math.max(
     Date.now(),
     Number(previous?.updatedAt ?? 0) + 1,
-    Number(incoming?.updatedAt ?? 0),
   )
-}
-
-/** Старые вкладки без связей не должны стирать связи, которые уже есть на сервере. */
-function preserveRelatedIds(previous, incoming) {
-  if (!Array.isArray(previous?.items) || !Array.isArray(incoming?.items)) return incoming
-  const incomingHasLinks = incoming.items.some(
-    (item) => Array.isArray(item.relatedIds) && item.relatedIds.length,
-  )
-  if (incomingHasLinks) return incoming
-
-  const previousById = new Map(previous.items.map((item) => [item.id, item]))
-  return {
-    ...incoming,
-    items: incoming.items.map((item) => {
-      const oldLinks = previousById.get(item.id)?.relatedIds
-      return oldLinks?.length && !(item.relatedIds ?? []).length
-        ? { ...item, relatedIds: oldLinks }
-        : item
-    }),
-  }
-}
-
-/**
- * Если MCP изменил задачу после того, как вкладка загрузила доску, сохраняем
- * серверную версию. После следующей синхронизации вкладка снова может её менять.
- */
-function preserveConcurrentMcpChanges(previous, incoming, baseVersion, metadata) {
-  const incomingById = new Map(incoming.items.map((item) => [item.id, item]))
-  const protectedIds = new Set(
-    previous.items
-      .filter((item) => Number(metadata.touchedAt?.[item.id] ?? 0) > baseVersion)
-      .map((item) => item.id),
-  )
-  if (!protectedIds.size) return { state: incoming, preservedIds: [] }
-
-  const preservedIds = []
-  const merged = incoming.items.map((item) => {
-    if (!protectedIds.has(item.id)) return item
-    const current = previous.items.find((candidate) => candidate.id === item.id)
-    if (!current) return item
-    preservedIds.push(item.id)
-    return current
-  })
-
-  const missing = previous.items.filter(
-    (item) => protectedIds.has(item.id) && !incomingById.has(item.id),
-  )
-  preservedIds.push(...missing.map((item) => item.id))
-
-  const protectedSprintIds = new Set(
-    [...missing, ...merged]
-      .filter((item) => protectedIds.has(item.id) && item.sprintId)
-      .map((item) => item.sprintId),
-  )
-  const incomingSprintIds = new Set((incoming.sprints ?? []).map((sprint) => sprint.id))
-  const missingSprints = (previous.sprints ?? []).filter(
-    (sprint) => protectedSprintIds.has(sprint.id) && !incomingSprintIds.has(sprint.id),
-  )
-
-  return {
-    state: {
-      ...incoming,
-      items: [...missing, ...merged],
-      sprints: [...(incoming.sprints ?? []), ...missingSprints],
-    },
-    preservedIds: [...new Set(preservedIds)],
-  }
 }
 
 function trimRequests(requests) {
@@ -146,8 +154,12 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
 
   function readState() {
     if (cachedState !== undefined) return cachedState
-    const state = readJson(stateFile, null)
-    if (state) assertState(state)
+    if (!fs.existsSync(stateFile)) {
+      cachedState = null
+      return null
+    }
+    const state = readJson(stateFile, undefined)
+    assertState(state)
     cachedState = state
     return state
   }
@@ -161,8 +173,14 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
     try { Promise.resolve(onChange(previous, next)).catch(() => {}) } catch {}
   }
 
-  function readMetadata() {
-    return readJson(metadataFile, { touchedAt: {}, requests: {} })
+  function readMetadata(state) {
+    const metadata = state._funbanMetadata ?? readJson(metadataFile, { touchedAt: {}, requests: {} })
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata) ||
+        (metadata.requests && (typeof metadata.requests !== 'object' || Array.isArray(metadata.requests))) ||
+        (metadata.touchedAt && (typeof metadata.touchedAt !== 'object' || Array.isArray(metadata.touchedAt)))) {
+      throw new Error('Некорректные метаданные Funban')
+    }
+    return structuredClone(metadata)
   }
 
   return {
@@ -178,7 +196,7 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
       })
     },
 
-    replace(rawBody, baseVersion) {
+    replace(rawBody, baseVersion, deletedRoots = []) {
       return exclusive(() => {
         const previous = readState()
         let incoming = JSON.parse(rawBody)
@@ -191,30 +209,14 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
           )
         }
         incoming = previous ? restoreAttachmentData(previous, incoming) : incoming
-        assertSafeReplacement(previous, incoming)
-
-        const metadata = readMetadata()
-        incoming = previous ? preserveRelatedIds(previous, incoming) : incoming
-        let preservedIds = []
-        if (
-          previous &&
-          Number.isFinite(baseVersion) &&
-          Number(baseVersion) < Number(previous.updatedAt ?? 0)
-        ) {
-          const merged = preserveConcurrentMcpChanges(
-            previous,
-            incoming,
-            Number(baseVersion),
-            metadata,
-          )
-          incoming = merged.state
-          preservedIds = merged.preservedIds
-        }
+        assertSafeReplacement(previous, incoming, deletedRoots)
+        delete incoming._funbanMetadata
+        if (previous?._funbanMetadata) incoming._funbanMetadata = previous._funbanMetadata
 
         incoming.updatedAt = nextVersion(previous, incoming)
         writeState(incoming)
         notify(previous, incoming)
-        return { state: incoming, preservedIds }
+        return { state: incoming, preservedIds: [] }
       })
     },
 
@@ -222,9 +224,9 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
       return exclusive(() => {
         const state = readState()
         if (!state) throw new Error('Доска Funban ещё не создана')
-        const metadata = readMetadata()
+        const metadata = readMetadata(state)
 
-        if (requestId && metadata.requests?.[requestId]) {
+        if (requestId && Object.hasOwn(metadata.requests ?? {}, requestId)) {
           return { ...metadata.requests[requestId].result, deduplicated: true }
         }
 
@@ -232,25 +234,23 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
         assertState(outcome.state)
         const version = nextVersion(state, outcome.state)
         outcome.state.updatedAt = version
-        writeState(outcome.state)
-
         metadata.touchedAt ??= {}
         for (const id of outcome.touchedIds ?? []) metadata.touchedAt[id] = version
         metadata.requests ??= {}
         const result = { ...outcome.result, updatedAt: version, deduplicated: false }
-        if (requestId) metadata.requests[requestId] = { at: version, result }
+        if (requestId) metadata.requests = { ...metadata.requests, [requestId]: { at: version, result } }
         metadata.requests = trimRequests(metadata.requests)
-        writeAtomic(metadataFile, JSON.stringify(metadata))
-
-        fs.appendFileSync(
-          auditFile,
-          `${JSON.stringify({
-            at: new Date(version).toISOString(),
-            action,
-            requestId: requestId ?? null,
+        outcome.state._funbanMetadata = metadata
+        // Board data and request deduplication are committed together.
+        writeState(outcome.state)
+        // Keep the old sidecar for rollback compatibility; the state file is authoritative.
+        try { writeAtomic(metadataFile, JSON.stringify(metadata)) } catch (error) { console.error('Funban metadata mirror failed:', error.message) }
+        try {
+          fs.appendFileSync(auditFile, `${JSON.stringify({
+            at: new Date(version).toISOString(), action, requestId: requestId ?? null,
             taskIds: outcome.touchedIds ?? [],
-          })}\n`,
-        )
+          })}\n`)
+        } catch (error) { console.error('Funban audit log failed:', error.message) }
 
         notify(state, outcome.state)
         return result

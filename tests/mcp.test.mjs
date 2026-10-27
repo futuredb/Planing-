@@ -130,6 +130,7 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
     cwd: path.resolve(import.meta.dirname, '..'),
     env: {
       ...process.env,
+      NODE_ENV: 'production',
       PORT: String(port),
       FUNBAN_DATA: stateFile,
       FUNBAN_MCP_TOKEN: sharedToken,
@@ -155,6 +156,7 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
 
   const initialResponse = await fetch(`${rootUrl}api/state`)
   assert.equal(initialResponse.status, 200)
+  assert.equal(initialResponse.headers.get('www-authenticate'), null)
   const initialPayload = await initialResponse.json()
   assert.ok(
     Number(initialResponse.headers.get('content-length')) <
@@ -174,7 +176,7 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
   const moved = await fetch(`${rootUrl}api/items/existing-1/move`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lane: 'doing', requestId: 'browser-move-001' }),
+    body: JSON.stringify({ lane: 'doing', sprintId: '2026-10-26', requestId: 'browser-move-001' }),
   })
   assert.equal(moved.status, 200)
   assert.equal((await moved.json()).lane, 'doing')

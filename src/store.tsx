@@ -11,10 +11,15 @@ import { itemScore, loadRemoteIfNewer, loadState, moveItemRemote, saveMe, saveSt
 import type { AppState, Attachment, Criterion, Item, Lane } from './types'
 import type { StickerId } from './stickers'
 import { preserveRoles, rollRoles } from './roles'
+import { conflictDetails, mergeBoards } from './merge-state'
+import { clearDraft, readDraft, saveDraft } from './draft-storage'
 import { StoreContext } from './store-context'
 
 export type Store = {
   state: AppState
+  syncStatus: 'saved' | 'saving' | 'retry' | 'error' | 'conflict'
+  syncError: string | null
+  retrySave: () => void
   weekId: string
   liveWeek: boolean
   shiftWeek: (dir: -1 | 1) => void
@@ -37,6 +42,7 @@ export type Store = {
   carryOver: (id: string) => void
   decompose: (id: string, titles: string[]) => void
   linkTasks: (id: string, titles: string[]) => void
+  linkExistingTask: (id: string, otherId: string) => void
   unlinkTask: (id: string, otherId: string) => void
   setScore: (itemId: string, criterionId: string, value: number | null) => void
   addComment: (itemId: string, text: string) => void
@@ -69,7 +75,15 @@ type PendingMove = {
 
 class MoveTracker {
   readonly pending = new Map<string, PendingMove>()
+  private readonly queues = new Map<string, Promise<void>>()
   private sequence = 0
+
+  enqueue(id: string, operation: () => Promise<void>) {
+    const run = (this.queues.get(id) ?? Promise.resolve()).catch(() => {}).then(operation)
+    this.queues.set(id, run)
+    void run.finally(() => { if (this.queues.get(id) === run) this.queues.delete(id) }).catch(() => {})
+    return run
+  }
 
   track(id: string, lane: Lane, sprintId?: string | null) {
     const move = {
@@ -124,110 +138,169 @@ function reapplyPendingMoves(state: AppState, moves: Map<string, PendingMove>) {
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null)
   const [me, setMe] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [syncStatus, setSyncStatus] = useState<Store['syncStatus']>('saved')
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [syncConflict, setSyncConflict] = useState<{ base: AppState; local: AppState; remote: AppState } | null>(null)
+  const [retryTick, setRetryTick] = useState(0)
+  const saveInFlight = useRef(false)
+  const retryCount = useRef(0)
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const conflictButton = useRef<HTMLButtonElement>(null)
+  const latestState = useRef<AppState | null>(null)
+  const serverBase = useRef<AppState | null>(null)
   const skipSaveVersion = useRef<number | null>(null)
   const remoteVersion = useRef(0)
   const fullSavePending = useRef(false)
   const fullSaveSequence = useRef(0)
+  const pendingDeletedRoots = useRef(new Set<string>())
   const moveTracker = useMemo(() => new MoveTracker(), [])
 
   useEffect(() => {
-    loadState().then((next) => {
+    let active = true
+    Promise.all([loadState(), readDraft()]).then(([next, draft]) => {
+      if (!active) return
+      serverBase.current = next
       remoteVersion.current = Number(next.updatedAt) || 0
-      skipSaveVersion.current = Number(next.updatedAt) || 0
       setMe(next.currentMemberId)
-      setState(next)
-    })
+      if (draft?.base && draft.state) {
+        pendingDeletedRoots.current = new Set(draft.deletedRoots ?? [])
+        const local = { ...draft.state, currentMemberId: next.currentMemberId }
+        const merged = mergeBoards(draft.base, local, next)
+        fullSavePending.current = true
+        fullSaveSequence.current += 1
+        if (merged.conflicts.length) {
+          setSyncConflict({ base: draft.base, local, remote: next })
+          setSyncStatus('conflict')
+          setState(local)
+        } else {
+          setState(bump(merged.state))
+          setSyncStatus('saving')
+        }
+      } else {
+        skipSaveVersion.current = Number(next.updatedAt) || 0
+        setState(next)
+      }
+    }).catch(() => { if (active) setLoadError(true) })
+    return () => { active = false }
+  }, [loadAttempt])
+
+  useEffect(() => { latestState.current = state }, [state])
+
+  useEffect(() => { if (syncConflict) conflictButton.current?.focus() }, [syncConflict])
+
+  useEffect(() => {
+    if (state && (fullSavePending.current || moveTracker.pending.size) && serverBase.current) saveDraft({ base: serverBase.current, state, deletedRoots: [...pendingDeletedRoots.current] })
+  }, [state, moveTracker])
+
+  useEffect(() => {
+    function online() {
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+      retryTimer.current = null
+      if (fullSavePending.current) setRetryTick((tick) => tick + 1)
+    }
+    window.addEventListener('online', online)
+    return () => {
+      window.removeEventListener('online', online)
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+    }
   }, [])
 
   useEffect(() => {
-    if (!state) return
+    if (!state || syncConflict || saveInFlight.current) return
     if (skipSaveVersion.current === Number(state.updatedAt)) {
       skipSaveVersion.current = null
       return
     }
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       const submittedAt = state.updatedAt
       const submittedSequence = fullSaveSequence.current
+      const base = serverBase.current
       const submittedMoves = new Map(
         [...moveTracker.pending].filter(([itemId, move]) =>
           moveMatches(state.items.find((item) => item.id === itemId), move),
         ),
       )
-      void saveState(state, remoteVersion.current).then(async (result) => {
-        if (!result) return
-        if (result.conflict) {
-          const remote = await loadRemoteIfNewer(-1)
-          if (!remote) return
-          if (fullSaveSequence.current === submittedSequence) fullSavePending.current = false
-          remoteVersion.current = Number(remote.updatedAt) || 0
-          setMe(remote.currentMemberId)
-          const rebased = reapplyPendingMoves(remote, moveTracker.pending)
-          if (rebased === remote) {
-            moveTracker.clearApplied(remote)
-            skipSaveVersion.current = Number(remote.updatedAt) || 0
+      saveInFlight.current = true
+      setSyncStatus('saving')
+      void (async () => {
+        let shouldRetry = false
+        try {
+          const result = await saveState(state, remoteVersion.current, [...pendingDeletedRoots.current])
+          if (!result) {
+            setSyncStatus('retry')
+            shouldRetry = true
+            return
           }
-          setState(rebased)
-          return
-        }
-        if (result.updatedAt) {
-          remoteVersion.current = Math.max(remoteVersion.current, result.updatedAt)
-        }
-        if (fullSaveSequence.current === submittedSequence) fullSavePending.current = false
-        for (const [itemId, move] of submittedMoves) {
-          moveTracker.acknowledge(itemId, move.sequence)
-        }
-        if (!result.preservedIds.length) return
-
-        const remote = await loadRemoteIfNewer(-1)
-        if (!remote) return
-        remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)
-        const protectedIds = new Set(result.preservedIds)
-
-        setState((current) => {
-          if (!current) return current
-          if (current.updatedAt === submittedAt) {
-            skipSaveVersion.current = Number(remote.updatedAt) || 0
-            return remote
+          if (result.conflict) {
+            const remote = await loadRemoteIfNewer(-1)
+            const local = latestState.current
+            if (!remote || !local || !base) {
+              setSyncStatus('retry')
+              shouldRetry = true
+              return
+            }
+            const merged = mergeBoards(base, local, remote)
+            if (merged.conflicts.length) {
+              setSyncStatus('conflict')
+              setSyncConflict({ base, local, remote })
+              return
+            }
+            serverBase.current = remote
+            remoteVersion.current = Number(remote.updatedAt) || 0
+            fullSavePending.current = true
+            setState(bump(reapplyPendingMoves(merged.state, moveTracker.pending)))
+            setSyncStatus('saving')
+            return
           }
-
-          const remoteById = new Map(remote.items.map((item) => [item.id, item]))
-          const currentIds = new Set(current.items.map((item) => item.id))
-          const replaced = current.items.map((item) =>
-            protectedIds.has(item.id) ? (remoteById.get(item.id) ?? item) : item,
-          )
-          const restored = remote.items.filter(
-            (item) => protectedIds.has(item.id) && !currentIds.has(item.id),
-          )
-          const sprintIds = new Set(current.sprints.map((sprint) => sprint.id))
-          const restoredSprints = remote.sprints.filter(
-            (sprint) => !sprintIds.has(sprint.id) &&
-              [...protectedIds].some(
-                (id) => remoteById.get(id)?.sprintId === sprint.id,
-              ),
-          )
-          return {
-            ...current,
-            items: [...restored, ...replaced],
-            sprints: [...current.sprints, ...restoredSprints],
+          if (!result.ok) {
+            setSyncError(result.error || 'Сервер отклонил сохранение')
+            setSyncStatus('error')
+            return
           }
-        })
-      })
+          if (result.updatedAt) remoteVersion.current = result.updatedAt
+          retryCount.current = 0
+          serverBase.current = { ...state, updatedAt: result.updatedAt }
+          if (fullSaveSequence.current === submittedSequence) {
+            fullSavePending.current = false
+            pendingDeletedRoots.current.clear()
+            clearDraft()
+          }
+          for (const [itemId, move] of submittedMoves) moveTracker.acknowledge(itemId, move.sequence)
+          if (latestState.current?.updatedAt === submittedAt) setSyncStatus('saved')
+          else {
+            setSyncStatus('saving')
+            shouldRetry = true
+          }
+        } catch {
+          setSyncStatus('retry')
+          shouldRetry = true
+        } finally {
+          saveInFlight.current = false
+          if (shouldRetry) {
+            const delay = Math.min(30000, 2000 * 2 ** Math.min(retryCount.current++, 4))
+            if (retryTimer.current) clearTimeout(retryTimer.current)
+            retryTimer.current = setTimeout(() => { retryTimer.current = null; setRetryTick((tick) => tick + 1) }, delay)
+          }
+        }
+      })()
     }, 250)
-    return () => clearTimeout(t)
-  }, [state, moveTracker])
+    return () => clearTimeout(timer)
+  }, [state, moveTracker, retryTick, syncConflict])
 
   useEffect(() => {
     const t = setInterval(() => {
       if (fullSavePending.current) return
-      void loadRemoteIfNewer(state?.updatedAt ?? 0).then((remote) => {
+      void loadRemoteIfNewer(remoteVersion.current).then((remote) => {
         if (!remote) return
         if (fullSavePending.current) return
+        if (Number(remote.updatedAt) < remoteVersion.current) return
         remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)
+        serverBase.current = remote
         setMe(remote.currentMemberId)
         const rebased = reapplyPendingMoves(remote, moveTracker.pending)
-        if (rebased === remote) {
-          skipSaveVersion.current = Number(remote.updatedAt) || 0
-        }
+        skipSaveVersion.current = Number(rebased.updatedAt) || 0
         setState(rebased)
       })
     }, 4000)
@@ -237,11 +310,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const mutate = useCallback((fn: (prev: AppState) => AppState) => {
     fullSavePending.current = true
     fullSaveSequence.current += 1
+    setSyncStatus('saving')
+    setSyncError(null)
     setState((prev) => (prev ? bump(fn(prev)) : prev))
   }, [])
 
   const mutateMove = useCallback((fn: (prev: AppState) => AppState) => {
     const atomicOnly = !fullSavePending.current
+    setSyncStatus('saving')
     setState((prev) => {
       if (!prev) return prev
       const next = bump(fn(prev))
@@ -260,7 +336,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       atomicOnly: boolean,
     ) => {
       if (!atomicOnly) return
-      void moveItemRemote(id, lane, sprintId).then((result) => {
+      void moveTracker.enqueue(id, async () => {
+        // Skip queued moves already superseded or saved by the full-state path.
+        if (moveTracker.pending.get(id)?.sequence !== sequence) return
+        const result = await moveItemRemote(id, lane, sprintId)
         if (!result?.ok) {
           fullSavePending.current = true
           fullSaveSequence.current += 1
@@ -268,14 +347,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return
         }
         moveTracker.acknowledge(id, sequence)
-        void loadRemoteIfNewer(-1).then((remote) => {
-          if (!remote || fullSavePending.current) return
-          remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)
-          moveTracker.clearApplied(remote)
-          skipSaveVersion.current = Number(remote.updatedAt) || 0
-          setMe(remote.currentMemberId)
-          setState(remote)
-        })
+        if (!fullSavePending.current && !moveTracker.pending.size) setSyncStatus('saved')
+        const remote = await loadRemoteIfNewer(-1)
+        if (!remote || fullSavePending.current) return
+        if (Number(remote.updatedAt) < remoteVersion.current) return
+        remoteVersion.current = Math.max(remoteVersion.current, Number(remote.updatedAt) || 0)
+        serverBase.current = remote
+        moveTracker.clearApplied(remote)
+        if (!fullSavePending.current && !moveTracker.pending.size) clearDraft()
+        const rebased = reapplyPendingMoves(remote, moveTracker.pending)
+        skipSaveVersion.current = Number(rebased.updatedAt) || 0
+        setMe(remote.currentMemberId)
+        setState(rebased)
       })
     },
     [moveTracker],
@@ -319,25 +402,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     return {
       state: view,
+      syncStatus,
+      syncError,
+      retrySave: () => { setSyncError(null); setSyncStatus('saving'); setRetryTick((tick) => tick + 1) },
       weekId,
       liveWeek,
       shiftWeek: (dir) => {
         const next = shiftMonday(weekId, dir)
         setWeekId(next)
-        setState((prev) => {
-          if (!prev) return prev
-          const updated = withWeek(prev, next)
-          return updated === prev ? prev : bump(updated)
-        })
+        if (!state.sprints.some((sprint) => sprint.id === next)) mutate((prev) => withWeek(prev, next))
       },
       goThisWeek: () => {
         const now = mondayOf()
         setWeekId(now)
-        setState((prev) => {
-          if (!prev) return prev
-          const updated = withWeek(prev, now)
-          return updated === prev ? prev : bump(updated)
-        })
+        if (!state.sprints.some((sprint) => sprint.id === now)) mutate((prev) => withWeek(prev, now))
       },
       setCurrentMember: (id) => {
         saveMe(id)
@@ -399,17 +477,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...s,
           items: s.items.map((it) => (it.id === id ? { ...it, ...patch } : it)),
         })),
-      removeItem: (id) =>
-        mutate((s) => ({
-          ...s,
-          items: s.items
-            .filter((it) => it.id !== id && it.parentId !== id)
-            .map((it) => ({
-              ...it,
-              relatedIds: (it.relatedIds ?? []).filter((rid) => rid !== id),
+      removeItem: (id) => {
+        pendingDeletedRoots.current.add(id)
+        mutate((s) => {
+          const removed = new Set([id])
+          let size = 0
+          while (size !== removed.size) {
+            size = removed.size
+            for (const item of s.items) if (item.parentId && removed.has(item.parentId)) removed.add(item.id)
+          }
+          for (const itemId of removed) moveTracker.pending.delete(itemId)
+          return {
+            ...s,
+            items: s.items.filter((it) => !removed.has(it.id)).map((it) => ({
+              ...it, relatedIds: (it.relatedIds ?? []).filter((rid) => !removed.has(rid)),
             })),
-          comments: s.comments.filter((c) => c.itemId !== id),
-        })),
+            comments: s.comments.filter((c) => !removed.has(c.itemId)),
+          }
+        })
+      },
       moveItem: (id, lane, sprintId) => {
         const move = moveTracker.track(id, lane, sprintId)
         const atomicOnly = mutateMove((s) => ({
@@ -528,6 +614,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             })
           }
           return { ...s, items }
+        }),
+      linkExistingTask: (id, otherId) =>
+        mutate((s) => {
+          if (id === otherId || !s.items.some((item) => item.id === id) || !s.items.some((item) => item.id === otherId)) return s
+          return { ...s, items: s.items.map((item) => {
+            if (item.id === id) return { ...item, relatedIds: [...new Set([...(item.relatedIds ?? []), otherId])] }
+            if (item.id === otherId) return { ...item, relatedIds: [...new Set([...(item.relatedIds ?? []), id])] }
+            return item
+          }) }
         }),
       unlinkTask: (id, otherId) =>
         mutate((s) => ({
@@ -678,13 +773,55 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         })),
       scoreOf: (item) => itemScore(item, view.criteria),
     }
-  }, [mutate, mutateMove, persistMove, state, me, weekId, liveWeek, moveTracker])
+  }, [mutate, mutateMove, persistMove, state, me, weekId, liveWeek, moveTracker, syncStatus, syncError])
 
+  if (loadError && !state) return <div className="boot"><div className="persona-picker">
+    <h1>Не удалось загрузить доску</h1>
+    <p>Проверьте соединение и попробуйте снова.</p>
+    <button type="button" className="secondary-button" onClick={() => { setLoadError(false); setLoadAttempt((attempt) => attempt + 1) }}>Повторить</button>
+  </div></div>
+  if (state && !me) {
+    return <div className="boot"><div className="persona-picker">
+      <h1>Кто вы в команде?</h1>
+      <p>Ваше имя будет указано в комментариях и реакциях.</p>
+      <div>{state.members.map((member) => <button className="secondary-button" key={member.id} type="button" onClick={() => { saveMe(member.id); setMe(member.id) }}>{member.name}</button>)}</div>
+    </div></div>
+  }
   // Store callbacks touch synchronization refs only when invoked by an event.
   // oxlint-disable-next-line react/refs
   if (!api) {
     return <div className="boot">Собираем доску…</div>
   }
 
-  return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>
+  function resolveConflict(choice: 'local' | 'remote') {
+    if (!syncConflict) return
+    const merged = mergeBoards(syncConflict.base, latestState.current ?? syncConflict.local, syncConflict.remote, choice)
+    serverBase.current = syncConflict.remote
+    remoteVersion.current = Number(syncConflict.remote.updatedAt) || 0
+    fullSavePending.current = true
+    fullSaveSequence.current += 1
+    moveTracker.pending.clear()
+    setState(bump(merged.state))
+    setSyncConflict(null)
+    setSyncStatus('saving')
+  }
+
+  return <StoreContext.Provider value={api}>
+    {children}
+    {syncConflict ? <div className="confirm-backdrop"><div className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="sync-conflict-title">
+      <h2 id="sync-conflict-title">Изменения пересеклись</h2>
+      <p>Кто-то изменил те же данные. Выберите, какую версию сохранить. Остальные изменения будут объединены.</p>
+      <div className="conflict-details">
+        {conflictDetails(syncConflict.base, syncConflict.local, syncConflict.remote).slice(0, 5).map((item) => <div key={item.path}>
+          <strong>{item.label}</strong>
+          <p><b>У вас:</b> {item.local}</p>
+          <p><b>У команды:</b> {item.remote}</p>
+        </div>)}
+      </div>
+      <div className="dialog-actions">
+        <button ref={conflictButton} type="button" className="secondary-button" onClick={() => resolveConflict('remote')}>Версия команды</button>
+        <button type="button" className="primary-button" onClick={() => resolveConflict('local')}>Моя версия</button>
+      </div>
+    </div></div> : null}
+  </StoreContext.Provider>
 }

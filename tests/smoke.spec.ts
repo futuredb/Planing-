@@ -4,7 +4,7 @@ import { createSeed } from '../src/seed'
 const consoleErrors = new Map<Page, string[]>()
 
 async function seed(page: Page) {
-  const response = await page.request.put('/api/state', { data: createSeed() })
+  const response = await page.request.post('/__test/reset', { data: createSeed() })
   expect(response.ok()).toBeTruthy()
 }
 
@@ -22,6 +22,7 @@ test.beforeEach(async ({ page }) => {
     }
   })
   await seed(page)
+  await page.addInitScript(() => localStorage.setItem('weekboard-me', 'm1'))
   await page.goto('/')
   await expect(page.getByText('Закрыть онбординг новых клиентов без ручных правок')).toBeVisible()
 })
@@ -146,11 +147,10 @@ test('задача двигается по спринту и реакция со
 
 test('перемещение карточки не откатывается при конкурентном обновлении', async ({ page }, testInfo) => {
   const remote = await page.request.get('/api/state').then((response) => response.json())
-  remote.updatedAt = Date.now() + 10_000
   remote.sprints = remote.sprints.map((sprint: { goal: string }, index: number) =>
     index === 0 ? { ...sprint, goal: `${sprint.goal} ` } : sprint,
   )
-  const externalSave = await page.request.put('/api/state', { data: remote })
+  const externalSave = await page.request.put('/api/state', { data: remote, headers: { 'X-Funban-Base-Updated-At': String(remote.updatedAt) } })
   expect(externalSave.ok()).toBeTruthy()
 
   const card = page.locator('.task-card').filter({ hasText: 'Автозаполнение реквизитов' })
@@ -246,12 +246,11 @@ test('поле комментария сохраняет фокус при фо�
   await expect(comment).toBeFocused()
 
   const remote = await page.request.get('/api/state').then((response) => response.json())
-  remote.updatedAt = Date.now() + 10_000
   remote.sprints = remote.sprints.map((sprint: { goal: string }) => ({
     ...sprint,
     goal: sprint.goal,
   }))
-  const saved = await page.request.put('/api/state', { data: remote })
+  const saved = await page.request.put('/api/state', { data: remote, headers: { 'X-Funban-Base-Updated-At': String(remote.updatedAt) } })
   expect(saved.ok()).toBeTruthy()
 
   await page.waitForTimeout(4_500)
@@ -278,7 +277,7 @@ test('идея быстро добавляется во входящие', async
   await page.getByRole('button', { name: 'Входящие', exact: true }).click()
   await page.getByLabel('Название идеи').fill('Проверить новый сценарий')
   const author = page.getByRole('combobox', { name: 'Кто добавляет на разбор' })
-  await expect(author).toContainText('Не указано')
+  await expect(author).toContainText('Лиля')
   await expect(author).toHaveAttribute('aria-expanded', 'false')
   await author.click()
   await expect(author).toHaveAttribute('aria-expanded', 'true')
@@ -306,7 +305,7 @@ test('задача от агента помечена на карточке и �
     (candidate: { title: string }) => candidate.title === 'Автозаполнение реквизитов в онбординге',
   )
   item.createdVia = 'agent'
-  const saved = await page.request.put('/api/state', { data: state })
+  const saved = await page.request.put('/api/state', { data: state, headers: { 'X-Funban-Base-Updated-At': String(state.updatedAt) } })
   expect(saved.ok()).toBeTruthy()
 
   await page.reload()
@@ -357,4 +356,85 @@ test('роли меняются только после подтверждени
       sprint.id === saved.sprints[0].id,
   )?.roles
   expect(Object.keys(weeklyRoles ?? {})).toHaveLength(saved.members.length)
+})
+
+test('поиск в шапке находит задачи по названию и описанию', async ({ page }) => {
+  await page.getByRole('button', { name: 'Поиск задач', exact: true }).click()
+  const search = page.getByRole('searchbox', { name: 'Найти задачу' })
+  await search.fill('менеджер копирует')
+  await page.locator('.search-results').getByRole('button', { name: /Автозаполнение реквизитов в онбординге/ }).click()
+  await expect(page.getByRole('dialog', { name: 'Задача: Автозаполнение реквизитов в онбординге' })).toBeVisible()
+})
+
+test('независимые изменения двух пользователей сохраняются при конфликте версий', async ({ page }) => {
+  await page.getByRole('button', { name: 'Автозаполнение реквизитов в онбординге', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: /Задача:/ })
+  await page.route('**/api/state?since=*', (route) => route.fulfill({ status: 304 }))
+  const remote = await page.request.get('/api/state').then((response) => response.json())
+  const other = remote.items.find((item: { title: string }) => item.title === 'Проверка шагов онбординга на стейдже')
+  other.body = 'Изменение второго пользователя'
+  const external = await page.request.put('/api/state', {
+    data: remote, headers: { 'X-Funban-Base-Updated-At': String(remote.updatedAt) },
+  })
+  expect(external.ok()).toBeTruthy()
+  // Unblock the explicit reload used to resolve a conflict, while suppressing polling above.
+  await page.route('**/api/state?since=-1', (route) => route.continue())
+  await dialog.getByRole('textbox', { name: 'Описание задачи' }).fill('Моя независимая правка')
+  await expect.poll(async () => {
+    const saved = await page.request.get('/api/state').then((response) => response.json())
+    return [
+      saved.items.find((item: { title: string }) => item.title === 'Автозаполнение реквизитов в онбординге')?.body,
+      saved.items.find((item: { title: string }) => item.title === 'Проверка шагов онбординга на стейдже')?.body,
+    ]
+  }).toEqual(['Моя независимая правка', 'Изменение второго пользователя'])
+})
+
+test('последний быстрый перенос побеждает задержанный первый запрос', async ({ page }) => {
+  await page.request.post('/__test/control', { data: { delayNextMove: 1500 } })
+  await page.getByRole('button', { name: 'Автозаполнение реквизитов в онбординге', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: /Задача:/ })
+  await dialog.getByRole('combobox', { name: 'Статус', exact: true }).click()
+  await dialog.getByRole('option', { name: 'В работе', exact: true }).click()
+  await dialog.getByRole('combobox', { name: 'Статус', exact: true }).click()
+  await dialog.getByRole('option', { name: 'Готово', exact: true }).click()
+  await expect.poll(async () => {
+    const log = await page.request.get('/__test/control').then((response) => response.json())
+    return log.events.filter((event: { method: string; route: string }) => event.method === 'POST' && event.route.endsWith('/move')).length
+  }).toBe(2)
+  const saved = await page.request.get('/api/state').then((response) => response.json())
+  expect(saved.items.find((item: { title: string }) => item.title === 'Автозаполнение реквизитов в онбординге')?.lane).toBe('done')
+  await expect(dialog.getByRole('combobox', { name: 'Статус', exact: true })).toContainText('Готово')
+})
+
+test('удаление родителя очищает всех потомков, комментарии и связи', async ({ page }) => {
+  const board = createSeed()
+  const template = board.items[0]
+  const descendants = [
+    ...Array.from({ length: 7 }, (_, index) => ({ ...structuredClone(template), id: `delete-child-${index}`, parentId: 'delete-root' })),
+    { ...structuredClone(template), id: 'delete-grandchild', parentId: 'delete-child-0' },
+  ]
+  const root = { ...structuredClone(template), id: 'delete-root', title: 'Родитель для удаления' }
+  board.items.push(root, ...descendants)
+  board.items[0].relatedIds.push('delete-grandchild')
+  board.comments.push({ id: 'delete-comment', itemId: 'delete-grandchild', authorId: 'm1', text: 'Комментарий внука', createdAt: Date.now() })
+  expect((await page.request.post('/__test/reset', { data: board })).ok()).toBeTruthy()
+  await page.reload()
+  await page.getByRole('button', { name: 'Поиск задач', exact: true }).click()
+  await page.getByRole('searchbox', { name: 'Найти задачу' }).fill('Родитель для удаления')
+  await page.getByRole('button', { name: /Родитель для удаления Входящие/ }).click()
+  await page.getByRole('button', { name: 'Другие действия', exact: true }).click()
+  await page.getByRole('button', { name: 'Удалить задачу…', exact: true }).click()
+  await page.getByRole('alertdialog', { name: 'Удалить задачу?' }).getByRole('button', { name: 'Удалить', exact: true }).click()
+  await expect.poll(async () => {
+    const saved = await page.request.get('/api/state').then((response) => response.json())
+    return {
+      tasks: saved.items.filter((item: { id: string }) => item.id.startsWith('delete-')).length,
+      comments: saved.comments.filter((comment: { id: string }) => comment.id === 'delete-comment').length,
+      links: saved.items.flatMap((item: { relatedIds: string[] }) => item.relatedIds).filter((id: string) => id.startsWith('delete-')).length,
+    }
+  }).toEqual({ tasks: 0, comments: 0, links: 0 })
+  await page.reload()
+  await page.getByRole('button', { name: 'Поиск задач', exact: true }).click()
+  await page.getByRole('searchbox', { name: 'Найти задачу' }).fill('Родитель для удаления')
+  await expect(page.getByText('Ничего не найдено. Попробуйте другие слова.')).toBeVisible()
 })

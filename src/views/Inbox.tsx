@@ -10,15 +10,12 @@ import { filesToAttachments, isInlineImage, isInlineVideo } from '../storage'
 import { useStore } from '../store-context'
 import type { Attachment } from '../types'
 import { Icon } from '../ui/Icon'
-import { Select } from '../ui/Select'
 
 export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   const { state, addIdea, pullToSprint, moveItem, assignItem, toggleReaction } = useStore()
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [files, setFiles] = useState<Attachment[]>([])
-  const [authorId, setAuthorId] = useState<string | null>(null)
-  const selectedAuthorId = authorId ?? state.currentMemberId
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [over, setOver] = useState(false)
 
@@ -38,11 +35,10 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!title.trim() && !body.trim() && !files.length) return
-    addIdea({ title, body, attachments: files, authorId: selectedAuthorId || null })
+    addIdea({ title, body, attachments: files })
     setTitle('')
     setBody('')
     setFiles([])
-    setAuthorId(null)
     setDetailsOpen(false)
   }
 
@@ -89,18 +85,6 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
               placeholder="Контекст, ссылка или цитата из чата"
               aria-label="Контекст идеи"
             />
-            <div className="capture-author">
-              <span>Кто добавляет</span>
-              <Select
-                value={selectedAuthorId}
-                onValueChange={setAuthorId}
-                ariaLabel="Кто добавляет на разбор"
-                options={[
-                  { value: '', label: 'Не указано' },
-                  ...state.members.map((member) => ({ value: member.id, label: member.name })),
-                ]}
-              />
-            </div>
             {files.length ? (
               <div className="thumbs">
                 {files.map((file) => (
@@ -155,7 +139,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
         <ul className="inbox-list">
           {ideas.map((item) => {
             const owner = state.members.find((member) => member.id === item.assigneeId)
-            const author = state.members.find((member) => member.id === item.authorId)
+            const author = [...state.members, ...(state.actors ?? [])].find((member) => member.id === item.authorId)
             const cardDrop = cardDropBind(
               (id, from) => assignItem(item.id, id, from),
               (sticker) => {
@@ -185,8 +169,8 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
                   <div className="inbox-meta">
                     {author ? (
                       <>
-                        <AuthorMeta item={item} members={state.members} />
-                        <RoleChip roleId={state.roles?.[author.id]} />
+                        <AuthorMeta item={item} members={state.members} actors={state.actors} />
+                        {state.members.some((member) => member.id === author.id) ? <RoleChip roleId={state.roles?.[author.id]} /> : null}
                       </>
                     ) : null}
                     {item.attachments.length ? <span>{item.attachments.length} файл.</span> : null}

@@ -331,7 +331,7 @@ function SprintCard({
           ) : (
             <span className="unassigned">Без исполнителя</span>
           )}
-          <AuthorMeta item={item} members={state.members} compact />
+          <AuthorMeta item={item} members={state.members} actors={state.actors} compact />
         </div>
         <ReactionBar item={item} compact />
       </div>

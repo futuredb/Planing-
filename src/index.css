@@ -2794,10 +2794,10 @@ button.linked-row {
   font-size: 14px;
 }
 
-.persona-picker { max-width: 420px; padding: 28px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); text-align: center; }
-.persona-picker h1 { color: var(--ink); font-size: 22px; }
-.persona-picker p { margin: 12px 0 18px; }
-.persona-picker > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.boot-message { max-width: 420px; padding: 28px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); text-align: center; }
+.boot-message h1 { color: var(--ink); font-size: 22px; }
+.boot-message p { margin: 12px 0 18px; }
+.boot-message > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .conflict-details { max-height: 35vh; margin: 16px 0; overflow-y: auto; text-align: left; }
 .conflict-details > div { padding: 10px; border-radius: 8px; background: var(--surface-subtle); }
 .conflict-details > div + div { margin-top: 8px; }

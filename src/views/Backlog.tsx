@@ -270,7 +270,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                             ) : (
                               <span className="unassigned">Без исполнителя</span>
                             )}
-                            <AuthorMeta item={item} members={state.members} compact />
+                            <AuthorMeta item={item} members={state.members} actors={state.actors} compact />
                             <ReactionBar item={item} compact />
                           </div>
                         </div>
@@ -344,7 +344,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                     ) : (
                       <span className="unassigned">Без исполнителя</span>
                     )}
-                    <AuthorMeta item={item} members={state.members} compact />
+                    <AuthorMeta item={item} members={state.members} actors={state.actors} compact />
                     <ReactionBar item={item} compact />
                     <button type="button" className="icon-button" onClick={() => pullToSprint(item.id)} aria-label="Добавить в спринт">
                       <Icon name="arrow" />
@@ -400,7 +400,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                               ) : (
                                 <span className="unassigned">Без исполнителя</span>
                               )}
-                              <AuthorMeta item={item} members={state.members} compact />
+                              <AuthorMeta item={item} members={state.members} actors={state.actors} compact />
                               <ReactionBar item={item} compact />
                               <strong className="matrix-score">{scoreOf(item) ?? '—'}</strong>
                             </div>
@@ -444,7 +444,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                             ) : (
                               <span className="unassigned">Без исполнителя</span>
                             )}
-                            <AuthorMeta item={item} members={state.members} compact />
+                            <AuthorMeta item={item} members={state.members} actors={state.actors} compact />
                             <ReactionBar item={item} compact />
                             <strong className="matrix-score">{scoreOf(item) ?? '—'}</strong>
                           </div>

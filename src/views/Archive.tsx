@@ -70,7 +70,7 @@ function ArchiveRow({
               <span>{owner.name}</span>
             </span>
           ) : null}
-          <AuthorMeta item={item} members={state.members} compact />
+          <AuthorMeta item={item} members={state.members} actors={state.actors} compact />
           <ReactionBar item={item} compact />
         </div>
       </div>

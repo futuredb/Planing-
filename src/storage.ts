@@ -4,52 +4,34 @@ import { createEmpty, DEFAULT_CRITERIA, isLegacyCriteria, TEAM_MEMBERS } from '.
 import { mondayOf } from './dates'
 import type { RoleMap } from './roles'
 import { preserveRoles } from './roles'
+import { fetchBoard } from './portal-session'
 
-const ME_KEY = 'weekboard-me'
-
-export function loadMe(): string | null {
-  try {
-    return localStorage.getItem(ME_KEY)
-  } catch {
-    return null
+function withSession(state: AppState, response: Response): AppState {
+  const id = response.headers.get('X-Funban-Actor-Id')
+  const name = response.headers.get('X-Funban-Actor-Name')
+  return { ...state, currentMemberId: id || state.currentMemberId || state.members[0]?.id || '',
+    actors: id && name ? [...(state.actors ?? []).filter((actor) => actor.id !== id), { id, name: decodeURIComponent(name) }] : state.actors,
   }
-}
-
-export function saveMe(id: string) {
-  try {
-    localStorage.setItem(ME_KEY, id)
-  } catch {
-    /* private mode */
-  }
-}
-
-function withPersona(state: AppState): AppState {
-  const saved = loadMe()
-  const id =
-    saved && state.members.some((m) => m.id === saved)
-      ? saved
-      : ''
-  return { ...state, currentMemberId: id }
 }
 
 export async function loadState(): Promise<AppState> {
-  const res = await fetch('/api/state')
+  const res = await fetchBoard('/api/state')
   if (!res.ok) throw new Error('Не удалось загрузить доску')
   const remote = await res.json()
-  if (remote === null) return withPersona(createEmpty())
+  if (remote === null) return withSession(createEmpty(), res)
   if (!remote || !Array.isArray(remote.items)) throw new Error('Сервер вернул некорректные данные')
-  return withPersona(migrate(remote as AppState))
+  return withSession(migrate(remote as AppState), res)
 }
 
 export async function loadRemoteIfNewer(localUpdatedAt: number): Promise<AppState | null> {
   try {
-    const res = await fetch(`/api/state?since=${encodeURIComponent(localUpdatedAt)}`)
+    const res = await fetchBoard(`/api/state?since=${encodeURIComponent(localUpdatedAt)}`)
     if (res.status === 304) return null
     if (!res.ok) return null
     const remote = await res.json()
     if (!remote || !Array.isArray(remote.items)) return null
     if (!(Number(remote.updatedAt) > localUpdatedAt)) return null
-    return withPersona(migrate(remote as AppState))
+    return withSession(migrate(remote as AppState), res)
   } catch {
     return null
   }
@@ -77,7 +59,7 @@ export async function saveState(
       headers['X-Funban-Base-Updated-At'] = String(baseUpdatedAt)
     }
     if (deletedRoots.length) headers['X-Funban-Deleted-Roots'] = JSON.stringify(deletedRoots)
-    const response = await fetch('/api/state', {
+    const response = await fetchBoard('/api/state', {
       method: 'PUT',
       headers,
       body: payload,
@@ -117,7 +99,7 @@ export async function moveItemRemote(
   sprintId?: string | null,
 ): Promise<{ ok: boolean; updatedAt: number } | null> {
   try {
-    const response = await fetch(`/api/items/${encodeURIComponent(itemId)}/move`, {
+    const response = await fetchBoard(`/api/items/${encodeURIComponent(itemId)}/move`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

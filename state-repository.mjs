@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { restoreAttachmentData } from './state-transport.mjs'
+import { attributeChanges } from './portal-auth.mjs'
 
 function readJson(file, fallback) {
   try {
@@ -36,6 +37,13 @@ function assertState(state) {
     }
   }
   const members = new Set(state.members.map((entry) => entry.id))
+  const actors = new Set(members)
+  if (state.actors !== undefined && !Array.isArray(state.actors)) invalid()
+  for (const actor of state.actors ?? []) {
+    if (!actor || typeof actor.id !== 'string' || !actor.id.startsWith('portal:') || actors.has(actor.id) ||
+        typeof actor.name !== 'string' || !actor.name.trim() || actor.name.length > 200) invalid()
+    actors.add(actor.id)
+  }
   const sprints = new Set(state.sprints.map((entry) => entry.id))
   const items = new Set(state.items.map((entry) => entry.id))
   if (!members.size || !state.roles || typeof state.roles !== 'object' || Array.isArray(state.roles)) invalid()
@@ -64,7 +72,7 @@ function assertState(state) {
       (item.parentId != null && !items.has(item.parentId)) ||
       (item.sprintId != null && !sprints.has(item.sprintId)) ||
       (item.assigneeId != null && !members.has(item.assigneeId)) ||
-      (item.authorId != null && !members.has(item.authorId)) ||
+      (item.authorId != null && !actors.has(item.authorId)) ||
       (['todo', 'doing', 'done'].includes(item.lane) && !item.sprintId) ||
       item.relatedIds.some((id) => !items.has(id) || id === item.id)) invalid()
     for (const attachment of item.attachments) {
@@ -76,7 +84,7 @@ function assertState(state) {
     }
     for (const sticker of item.stickers) {
       if (!sticker || typeof sticker.id !== 'string' || typeof sticker.sticker !== 'string' ||
-          !members.has(sticker.by) || !['x', 'y', 'rot', 'scale'].every((key) => Number.isFinite(sticker[key]))) invalid()
+          !actors.has(sticker.by) || !['x', 'y', 'rot', 'scale'].every((key) => Number.isFinite(sticker[key]))) invalid()
     }
   }
   const parents = new Map(state.items.map((item) => [item.id, item.parentId]))
@@ -91,7 +99,7 @@ function assertState(state) {
     }
     for (const ancestor of chain) visited.add(ancestor)
   }
-  for (const comment of state.comments) if (!items.has(comment.itemId) || !members.has(comment.authorId) || typeof comment.text !== 'string' || !Number.isFinite(comment.createdAt)) invalid()
+  for (const comment of state.comments) if (!items.has(comment.itemId) || !actors.has(comment.authorId) || typeof comment.text !== 'string' || !Number.isFinite(comment.createdAt)) invalid()
 }
 
 function conflict(message, currentUpdatedAt) {
@@ -196,10 +204,12 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
       })
     },
 
-    replace(rawBody, baseVersion, deletedRoots = []) {
+    replace(rawBody, baseVersion, deletedRoots = [], actor = null) {
       return exclusive(() => {
         const previous = readState()
         let incoming = JSON.parse(rawBody)
+        assertState(incoming)
+        incoming = attributeChanges(previous, incoming, actor)
         assertState(incoming)
 
         if (previous && Number(baseVersion) !== Number(previous.updatedAt)) {

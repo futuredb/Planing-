@@ -214,7 +214,7 @@ export function Drawer({
                   }}
                   aria-label="Название задачи"
                 />
-                <AuthorMeta item={item} members={state.members} />
+                <AuthorMeta item={item} members={state.members} actors={state.actors} />
                 <textarea
                   className="drawer-description"
                   rows={6}
@@ -440,7 +440,7 @@ export function Drawer({
                 {thread.length ? (
                   <ul className="comments">
                     {thread.map((entry) => {
-                      const author = state.members.find((member) => member.id === entry.authorId)
+                      const author = [...state.members, ...(state.actors ?? [])].find((member) => member.id === entry.authorId)
                       return (
                         <li key={entry.id}>
                           <div>

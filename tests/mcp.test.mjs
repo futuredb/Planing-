@@ -7,6 +7,9 @@ import path from 'node:path'
 import test from 'node:test'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { restoreAttachmentData, stateForClient } from '../state-transport.mjs'
+import { startMockPortal } from './mock-portal.mjs'
+
+const fetch = (url, init = {}) => globalThis.fetch(url, { ...init, headers: { Cookie: 'funban_preview_session=lily', ...init.headers } })
 
 const sharedToken = 'test-shared-token'
 
@@ -126,11 +129,13 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
   const port = await freePort()
   const rootUrl = `http://127.0.0.1:${port}/`
   const processLogs = []
+  const portal = await startMockPortal()
   const child = spawn(process.execPath, ['server.mjs'], {
     cwd: path.resolve(import.meta.dirname, '..'),
     env: {
       ...process.env,
       NODE_ENV: 'production',
+      FUNBAN_PORTAL_IDENTITY_URL: portal.url,
       PORT: String(port),
       FUNBAN_DATA: stateFile,
       FUNBAN_MCP_TOKEN: sharedToken,
@@ -150,6 +155,7 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
       else child.once('exit', resolve)
     })
     fs.rmSync(tempDir, { recursive: true, force: true })
+    await portal.close()
   })
 
   await waitForServer(rootUrl, processLogs)

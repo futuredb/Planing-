@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { startMockPortal } from './mock-portal.mjs'
 
 const directory = await mkdtemp(path.join(os.tmpdir(), 'funban-e2e-'))
 const dataFile = path.join(directory, 'state.json')
@@ -12,10 +13,12 @@ const serverPort = Number(process.env.FUNBAN_TEST_SERVER_PORT || 4175)
 const target = `http://127.0.0.1:${serverPort}`
 const controls = { failWrites: false, rejectWrites: false, freezePoll: false, delayWrite: 0, delayMove: 0, delayNextMove: 0 }
 const events = []
+const portal = await startMockPortal()
+let portalSession = 'lily'
 let child
 async function start() {
   child = spawn(process.execPath, ['server.mjs'], {
-    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(serverPort), FUNBAN_DATA: dataFile, FUNBAN_PUBLIC_URL: `http://127.0.0.1:${port}/`, FUNBAN_MCP_TOKEN: process.env.FUNBAN_TEST_MCP_TOKEN || '', DASHBOARD_INGEST_URL: '', DASHBOARD_INGEST_TOKEN: '' },
+    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(serverPort), FUNBAN_DATA: dataFile, FUNBAN_PUBLIC_URL: `http://127.0.0.1:${port}/`, FUNBAN_PORTAL_IDENTITY_URL: portal.url, FUNBAN_MCP_TOKEN: process.env.FUNBAN_TEST_MCP_TOKEN || '', DASHBOARD_INGEST_URL: '', DASHBOARD_INGEST_TOKEN: '' },
     stdio: 'inherit',
   })
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -47,6 +50,25 @@ const proxy = http.createServer(async (req, res) => {
     const chunks = []
     for await (const chunk of req) chunks.push(chunk)
     const body = Buffer.concat(chunks)
+    if (req.url === '/__test/portal' && req.method === 'POST') {
+      const input = JSON.parse(body)
+      if (Object.hasOwn(input, 'session')) portalSession = input.session
+      if (Object.hasOwn(input, 'unavailable')) portal.controls.unavailable = Boolean(input.unavailable)
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); return
+    }
+    if (req.url.startsWith('/__test/probe?')) {
+      const query = new URL(req.url, target).searchParams
+      const route = query.get('path') || '/'
+      if (!route.startsWith('/') || route.startsWith('//')) throw new Error('Invalid probe path')
+      const cookie = query.get('session')
+      const response = await fetch(target + route, { redirect: 'manual',
+        method: query.get('method') || 'GET',
+        headers: { ...(cookie ? { Cookie: `funban_preview_session=${cookie}` } : {}),
+          'X-Auth-User': 'spoofed@future-db.ru', 'X-Funban-Actor-Id': 'm2' },
+      })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ status: response.status, location: response.headers.get('location'), body: await response.text() })); return
+    }
     if (req.url === '/__test/control') {
       if (req.method === 'POST') Object.assign(controls, JSON.parse(body))
       res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -54,6 +76,7 @@ const proxy = http.createServer(async (req, res) => {
       return
     }
     if (req.url === '/__test/reset' && req.method === 'POST') {
+      portalSession = 'lily'; portal.controls.unavailable = false
       await stop()
       await Promise.all([`${dataFile}.mcp.json`, `${dataFile}.audit.jsonl`].map((file) => rm(file, { force: true })))
       await writeFile(dataFile, body)
@@ -87,12 +110,13 @@ const proxy = http.createServer(async (req, res) => {
     if (!direct && isMove) controls.delayNextMove = 0
     if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
     const headers = { ...req.headers }
+    headers.cookie = `funban_preview_session=${portalSession || 'expired'}`
     delete headers.host
     delete headers.connection
     delete headers['content-length']
     delete headers['accept-encoding']
     const response = await fetch(`${target}${route}`, {
-      method: req.method, headers,
+      method: req.method, headers, redirect: 'manual',
       body: ['GET', 'HEAD'].includes(req.method) ? undefined : body,
     })
     if (route.startsWith('/api/')) events.push({ method: req.method, route, status: response.status })
@@ -108,6 +132,6 @@ const proxy = http.createServer(async (req, res) => {
   }
 })
 proxy.listen(port, '127.0.0.1', () => console.log(`Funban E2E proxy on http://127.0.0.1:${port}`))
-async function shutdown() { proxy.close(); await stop(); await rm(directory, { recursive: true, force: true }) }
+async function shutdown() { proxy.close(); await stop(); await portal.close(); await rm(directory, { recursive: true, force: true }) }
 process.once('SIGINT', () => void shutdown())
 process.once('SIGTERM', () => void shutdown())

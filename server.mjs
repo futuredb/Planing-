@@ -14,6 +14,7 @@ import { createFunbanMcpHandler } from './funban-mcp.mjs'
 import { createStateRepository } from './state-repository.mjs'
 import { moveTask } from './state-operations.mjs'
 import { decodeImageDataUrl, findAttachment, stateForClient } from './state-transport.mjs'
+import { portalActor, portalRequired, portalLoginUrl, withActor } from './portal-auth.mjs'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const dist = path.join(root, 'dist')
@@ -47,7 +48,7 @@ const mcpHandler = createFunbanMcpHandler({
 const handleMcp = toNodeHandler(mcpHandler, {
   onerror: (error) => console.error('MCP request failed:', error.message),
 })
-let stateResponseCache = { updatedAt: null, body: null }
+let stateResponseCache = { updatedAt: null, state: null }
 
 const mime = {
   '.html': 'text/html; charset=utf-8',
@@ -96,16 +97,14 @@ function send(res, status, body, type = 'text/plain; charset=utf-8') {
   res.end(body)
 }
 
-function serializedState(state) {
+function serializedState(state, actor) {
   const updatedAt = Number(state?.updatedAt) || 0
-  if (stateResponseCache.body && stateResponseCache.updatedAt === updatedAt) {
-    return stateResponseCache.body
+  if (!stateResponseCache.state || stateResponseCache.updatedAt !== updatedAt) {
+    stateResponseCache = { updatedAt, state: stateForClient(state) }
   }
-  stateResponseCache = {
-    updatedAt,
-    body: Buffer.from(JSON.stringify(stateForClient(state))),
-  }
-  return stateResponseCache.body
+  return Buffer.from(JSON.stringify({ ...stateResponseCache.state,
+    currentMemberId: actor?.id || state.members[0]?.id || '', actors: withActor(state.actors, actor),
+  }))
 }
 
 function hasValidBearerToken(req) {
@@ -149,7 +148,7 @@ async function handleRequest(req, res) {
     return
   }
 
-  if (url.startsWith('/api/health')) {
+  if (new URL(url, 'http://127.0.0.1').pathname === '/api/health') {
     if (req.method !== 'GET') {
       send(res, 405, 'Method Not Allowed')
       return
@@ -158,6 +157,27 @@ async function handleRequest(req, res) {
     send(res, 200, JSON.stringify({ ok: true }), 'application/json; charset=utf-8')
     return
   }
+
+  let actor
+  try { actor = await portalActor(req) } catch {
+    send(res, 503, JSON.stringify({ error: 'Портал авторизации временно недоступен' }), 'application/json; charset=utf-8')
+    return
+  }
+  if (portalRequired && !actor) {
+    res.setHeader('Cache-Control', 'private, no-store')
+    if (url.startsWith('/api/')) {
+      send(res, 401, JSON.stringify({ error: 'Войдите в портал', loginUrl: portalLoginUrl }), 'application/json; charset=utf-8')
+    } else {
+      res.setHeader('Location', portalLoginUrl)
+      send(res, 302, 'Войдите в портал')
+    }
+    return
+  }
+  if (actor) {
+    res.setHeader('X-Funban-Actor-Id', actor.id)
+    res.setHeader('X-Funban-Actor-Name', encodeURIComponent(actor.name))
+  }
+  res.setHeader('Cache-Control', 'private, no-store')
 
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method) && req.headers.origin) {
     const origin = new URL(req.headers.origin)
@@ -183,7 +203,7 @@ async function handleRequest(req, res) {
         return
       }
       res.setHeader('X-Content-Type-Options', 'nosniff')
-      res.setHeader('Cache-Control', 'private, max-age=31536000, immutable')
+      res.setHeader('Cache-Control', 'private, no-store')
       if (!decoded.inline) res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(attachment.name || 'file')}`)
       send(res, 200, decoded.body, decoded.mime)
     } catch {
@@ -227,7 +247,7 @@ async function handleRequest(req, res) {
         else { res.writeHead(304); res.end() }
         return
       }
-      res.end(serializedState(state))
+      res.end(serializedState(state, actor))
       return
     }
     if (req.method === 'PUT') {
@@ -239,7 +259,7 @@ async function handleRequest(req, res) {
         const deleteHeader = req.headers['x-funban-deleted-roots']
         const deletedRoots = deleteHeader ? JSON.parse(String(deleteHeader)) : []
         if (!Array.isArray(deletedRoots) || deletedRoots.some((id) => typeof id !== 'string')) throw new Error('Некорректный список удалённых задач')
-        const result = await repository.replace(body, baseVersion, deletedRoots)
+        const result = await repository.replace(body, baseVersion, deletedRoots, actor)
         res.end(
           JSON.stringify({
             ok: true,

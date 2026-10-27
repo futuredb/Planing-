@@ -22,7 +22,6 @@ test.beforeEach(async ({ page }) => {
     }
   })
   await seed(page)
-  await page.addInitScript(() => localStorage.setItem('weekboard-me', 'm1'))
   await page.goto('/')
   await expect(page.getByText('Закрыть онбординг новых клиентов без ручных правок')).toBeVisible()
 })
@@ -276,27 +275,36 @@ test('поле комментария сохраняет фокус при фо�
 test('идея быстро добавляется во входящие', async ({ page }) => {
   await page.getByRole('button', { name: 'Входящие', exact: true }).click()
   await page.getByLabel('Название идеи').fill('Проверить новый сценарий')
-  const author = page.getByRole('combobox', { name: 'Кто добавляет на разбор' })
-  await expect(author).toContainText('Лиля')
-  await expect(author).toHaveAttribute('aria-expanded', 'false')
-  await author.click()
-  await expect(author).toHaveAttribute('aria-expanded', 'true')
-  await page.keyboard.press('Escape')
-  await expect(author).toHaveAttribute('aria-expanded', 'false')
-  await author.click()
-  await page.getByRole('option', { name: 'Ваня', exact: true }).click()
-  await expect(author).toContainText('Ваня')
+  await expect(page.getByRole('combobox', { name: 'Кто добавляет на разбор' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Добавить', exact: true }).click()
   const ideaRow = page.locator('.inbox-list > li').filter({ hasText: 'Проверить новый сценарий' })
   await expect(ideaRow.getByRole('button', { name: 'Проверить новый сценарий', exact: true })).toBeVisible()
-  await expect(ideaRow.getByLabel('Автор задачи: Ваня')).toBeVisible()
+  await expect(ideaRow.getByLabel('Автор задачи: Лиля')).toBeVisible()
   await page.waitForTimeout(400)
 
   const saved = await page.request.get('/api/state').then((response) => response.json())
   const idea = saved.items.find(
     (item: { title: string }) => item.title === 'Проверить новый сценарий',
   )
-  expect(idea.authorId).toBe('m2')
+  expect(idea.authorId).toBe('portal:preview-lily')
+})
+
+test('личность берётся из портала, ручного выбора на доске и в команде нет', async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem('weekboard-me', 'm2'))
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Кто вы в команде?' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Команда', exact: true }).click()
+  await expect(page.getByRole('button', { name: /Это я|Это вы/ })).toHaveCount(0)
+  await expect(page.locator('.team-list > li')).toHaveCount(5)
+  const board = await page.request.get('/api/state').then(r => r.json())
+  expect(board.currentMemberId).toBe('portal:preview-lily')
+})
+
+test('истёкшая сессия закрывает интерфейс и предлагает общий вход', async ({ page }) => {
+  await page.request.post('/__test/portal', { data: { session: null } })
+  await expect(page.getByRole('heading', { name: 'Войдите в портал' })).toBeVisible({ timeout: 10000 })
+  await expect(page.getByRole('link', { name: 'Войти через портал' })).toHaveAttribute('href', /future-db\.ru\/login\?next=%2Fopen%2Ffunban/)
+  consoleErrors.set(page, (consoleErrors.get(page) || []).filter(message => !message.includes('401 (Unauthorized)')))
 })
 
 test('задача от агента помечена на карточке и в инспекторе', async ({ page }) => {

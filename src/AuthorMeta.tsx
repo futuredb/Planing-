@@ -3,13 +3,15 @@ import type { Item, Member } from './types'
 export function AuthorMeta({
   item,
   members,
+  actors = [],
   compact = false,
 }: {
   item: Item
   members: Member[]
+  actors?: { id: string; name: string }[]
   compact?: boolean
 }) {
-  const author = members.find((member) => member.id === item.authorId)
+  const author = [...members, ...actors].find((member) => member.id === item.authorId)
   if (!author) return null
 
   return (

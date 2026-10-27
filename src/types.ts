@@ -84,6 +84,7 @@ export type AppState = {
   updatedAt: number
   members: Member[]
   currentMemberId: string
+  actors?: { id: string; name: string }[]
   roles: RoleMap
   criteria: Criterion[]
   sprints: Sprint[]

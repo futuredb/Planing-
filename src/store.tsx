@@ -7,7 +7,8 @@ import {
   type ReactNode,
 } from 'react'
 import { mondayOf, nextMonday, shiftMonday, uid } from './dates'
-import { itemScore, loadRemoteIfNewer, loadState, moveItemRemote, saveMe, saveState } from './storage'
+import { itemScore, loadRemoteIfNewer, loadState, moveItemRemote, saveState } from './storage'
+import { portalLoginUrl } from './portal-session'
 import type { AppState, Attachment, Criterion, Item, Lane } from './types'
 import type { StickerId } from './stickers'
 import { preserveRoles, rollRoles } from './roles'
@@ -24,7 +25,6 @@ export type Store = {
   liveWeek: boolean
   shiftWeek: (dir: -1 | 1) => void
   goThisWeek: () => void
-  setCurrentMember: (id: string) => void
   patchMember: (id: string, patch: { name?: string; role?: string; avatar?: string }) => void
   assignItem: (itemId: string, memberId: string | null, fromItemId?: string | null) => void
   setGoal: (text: string) => void
@@ -33,7 +33,6 @@ export type Store = {
     title: string
     body: string
     attachments: Attachment[]
-    authorId: string | null
   }) => void
   updateItem: (id: string, patch: Partial<Item>) => void
   removeItem: (id: string) => void
@@ -139,6 +138,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState | null>(null)
   const [me, setMe] = useState<string | null>(null)
   const [loadError, setLoadError] = useState(false)
+  const [authRequired, setAuthRequired] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [syncStatus, setSyncStatus] = useState<Store['syncStatus']>('saved')
   const [syncError, setSyncError] = useState<string | null>(null)
@@ -156,6 +156,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const fullSaveSequence = useRef(0)
   const pendingDeletedRoots = useRef(new Set<string>())
   const moveTracker = useMemo(() => new MoveTracker(), [])
+
+  useEffect(() => {
+    const expired = () => setAuthRequired(true)
+    window.addEventListener('funban-auth-required', expired)
+    return () => window.removeEventListener('funban-auth-required', expired)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -208,7 +214,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!state || syncConflict || saveInFlight.current) return
+    if (!state || authRequired || syncConflict || saveInFlight.current) return
     if (skipSaveVersion.current === Number(state.updatedAt)) {
       skipSaveVersion.current = null
       return
@@ -287,9 +293,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       })()
     }, 250)
     return () => clearTimeout(timer)
-  }, [state, moveTracker, retryTick, syncConflict])
+  }, [state, moveTracker, retryTick, syncConflict, authRequired])
 
   useEffect(() => {
+    if (authRequired) return
     const t = setInterval(() => {
       if (fullSavePending.current) return
       void loadRemoteIfNewer(remoteVersion.current).then((remote) => {
@@ -305,7 +312,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       })
     }, 4000)
     return () => clearInterval(t)
-  }, [state?.updatedAt, moveTracker])
+  }, [state?.updatedAt, moveTracker, authRequired])
 
   const mutate = useCallback((fn: (prev: AppState) => AppState) => {
     fullSavePending.current = true
@@ -417,10 +424,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setWeekId(now)
         if (!state.sprints.some((sprint) => sprint.id === now)) mutate((prev) => withWeek(prev, now))
       },
-      setCurrentMember: (id) => {
-        saveMe(id)
-        setMe(id)
-      },
       patchMember: (id, patch) =>
         mutate((s) => ({
           ...s,
@@ -449,7 +452,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             sp.id === weekId ? { ...sp, goalClosed: !sp.goalClosed } : sp,
           ),
         })),
-      addIdea: ({ title, body, attachments, authorId }) =>
+      addIdea: ({ title, body, attachments }) =>
         mutate((s) => ({
           ...s,
           items: [
@@ -461,7 +464,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               sprintId: null,
               parentId: null,
               assigneeId: null,
-              authorId,
+              authorId: me,
               scores: {},
               attachments,
               stickers: [],
@@ -775,18 +778,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [mutate, mutateMove, persistMove, state, me, weekId, liveWeek, moveTracker, syncStatus, syncError])
 
-  if (loadError && !state) return <div className="boot"><div className="persona-picker">
+  if (authRequired) return <div className="boot"><div className="boot-message">
+    <h1>Войдите в портал</h1>
+    <p>Сессия завершилась или учётная запись изменилась. Несохранённые правки остаются в этом браузере.</p>
+    <a className="primary-button" href={portalLoginUrl}>Войти через портал</a>
+  </div></div>
+  if (loadError && !state) return <div className="boot"><div className="boot-message">
     <h1>Не удалось загрузить доску</h1>
     <p>Проверьте соединение и попробуйте снова.</p>
     <button type="button" className="secondary-button" onClick={() => { setLoadError(false); setLoadAttempt((attempt) => attempt + 1) }}>Повторить</button>
   </div></div>
-  if (state && !me) {
-    return <div className="boot"><div className="persona-picker">
-      <h1>Кто вы в команде?</h1>
-      <p>Ваше имя будет указано в комментариях и реакциях.</p>
-      <div>{state.members.map((member) => <button className="secondary-button" key={member.id} type="button" onClick={() => { saveMe(member.id); setMe(member.id) }}>{member.name}</button>)}</div>
-    </div></div>
-  }
   // Store callbacks touch synchronization refs only when invoked by an event.
   // oxlint-disable-next-line react/refs
   if (!api) {

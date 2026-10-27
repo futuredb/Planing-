@@ -39,6 +39,8 @@ jobs:
             if docker exec "$container_id" node -e \
               "fetch('http://127.0.0.1:3000/api/health').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
             then
+              docker exec "$container_id" node --input-type=module -e \
+                "for (const [path, expected] of [['/',302],['/api/state',401],['/api/attachments/test',401]]) { const r = await fetch('http://127.0.0.1:3000'+path,{redirect:'manual'}); if(r.status!==expected) process.exit(1); }"
               exit 0
             fi
             sleep 1

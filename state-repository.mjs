@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { restoreAttachmentData } from './state-transport.mjs'
 import { attributeChanges } from './portal-auth.mjs'
+import { assignTaskNumbers } from './task-numbers.mjs'
 
 function readJson(file, fallback) {
   try {
@@ -63,7 +64,8 @@ function assertState(state) {
   }
   const attachmentIds = new Set()
   for (const item of state.items) {
-    if (!['inbox', 'backlog', 'todo', 'doing', 'done', 'archive'].includes(item.lane) ||
+    if ((item.number !== undefined && (!Number.isSafeInteger(item.number) || item.number < 1)) ||
+      !['inbox', 'backlog', 'todo', 'doing', 'done', 'archive'].includes(item.lane) ||
       typeof item.title !== 'string' || typeof item.body !== 'string' ||
       !Array.isArray(item.attachments) || !Array.isArray(item.stickers) ||
       !Array.isArray(item.relatedIds) || !item.scores || typeof item.scores !== 'object' || Array.isArray(item.scores) ||
@@ -168,6 +170,17 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
     }
     const state = readJson(stateFile, undefined)
     assertState(state)
+    const original = JSON.stringify(state)
+    const metadata = readMetadata(state)
+    if (assignTaskNumbers(state, metadata, { trustStoredNumbers: true })) {
+      // Keep a private, one-time copy of the legacy board before migration.
+      try { fs.writeFileSync(`${stateFile}.before-task-numbers.json`, original, { flag: 'wx', mode: 0o600 }) }
+      catch (error) { if (error.code !== 'EEXIST') throw error }
+      state._funbanMetadata = metadata
+      state.updatedAt = nextVersion(state)
+      assertState(state)
+      writeState(state)
+    }
     cachedState = state
     return state
   }
@@ -221,7 +234,10 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
         incoming = previous ? restoreAttachmentData(previous, incoming) : incoming
         assertSafeReplacement(previous, incoming, deletedRoots)
         delete incoming._funbanMetadata
-        if (previous?._funbanMetadata) incoming._funbanMetadata = previous._funbanMetadata
+        const metadata = readMetadata(previous ?? {})
+        assignTaskNumbers(incoming, metadata)
+        incoming._funbanMetadata = metadata
+        assertState(incoming)
 
         incoming.updatedAt = nextVersion(previous, incoming)
         writeState(incoming)
@@ -237,10 +253,19 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
         const metadata = readMetadata(state)
 
         if (requestId && Object.hasOwn(metadata.requests ?? {}, requestId)) {
-          return { ...metadata.requests[requestId].result, deduplicated: true }
+          const result = structuredClone(metadata.requests[requestId].result)
+          const number = metadata.taskNumbers?.byId?.[result.task?.id]
+          if (result.task && Number.isSafeInteger(number)) Object.assign(result.task, { number, reference: `#${number}` })
+          return { ...result, deduplicated: true }
         }
 
         const outcome = operation(structuredClone(state))
+        assignTaskNumbers(outcome.state, metadata)
+        // Tool results are constructed before the server assigns a new number.
+        if (outcome.result?.task?.id) {
+          const task = outcome.state.items.find((item) => item.id === outcome.result.task.id)
+          if (task) Object.assign(outcome.result.task, { number: task.number, reference: `#${task.number}` })
+        }
         assertState(outcome.state)
         const version = nextVersion(state, outcome.state)
         outcome.state.updatedAt = version

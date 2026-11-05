@@ -176,7 +176,7 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
   assert.equal(attachmentResponse.headers.get('content-type'), 'image/png')
   assert.ok((await attachmentResponse.arrayBuffer()).byteLength > 0)
 
-  const unchangedState = await fetch(`${rootUrl}api/state?since=${initialState.updatedAt}`)
+  const unchangedState = await fetch(`${rootUrl}api/state?since=${initialPayload.updatedAt}`)
   assert.equal(unchangedState.status, 304)
 
   const moved = await fetch(`${rootUrl}api/items/existing-1/move`, {

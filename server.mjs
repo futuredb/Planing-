@@ -265,6 +265,7 @@ async function handleRequest(req, res) {
             ok: true,
             updatedAt: result.state.updatedAt,
             preservedIds: result.preservedIds,
+            taskNumbers: Object.fromEntries(result.state.items.map((item) => [item.id, item.number])),
           }),
         )
       } catch (error) {

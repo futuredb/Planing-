@@ -28,3 +28,6 @@ output/playwright
 *.sln
 *.sw?
 .vercel
+
+# Private pre-migration state backup
+*.before-task-numbers.json

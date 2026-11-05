@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type DragEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
 import { AuthorMeta } from '../AuthorMeta'
+import { TaskNumber } from '../TaskNumber'
 import { cardDropBind } from '../card-drop'
 import { ReactionBar } from '../StickerBar'
 import { useStore } from '../store-context'
@@ -260,7 +261,7 @@ function SprintCard({
       className={`task-card item-drop-zone${menuOpen ? ' menu-open' : ''}`}
       draggable
       onDragStart={(event) => {
-        if ((event.target as HTMLElement).closest('button, input, textarea, select')) {
+        if ((event.target as HTMLElement).closest('button, input, textarea, select, .task-number')) {
           event.preventDefault()
           return
         }
@@ -272,6 +273,7 @@ function SprintCard({
       onDragLeave={cardDrop.onDragLeave}
       onDrop={cardDrop.onDrop}
     >
+      <TaskNumber number={item.number} />
       <div className="task-card-top">
         <div className="task-title-line">
           <button type="button" className="task-title" onClick={() => onOpen(item.id)}>

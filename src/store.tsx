@@ -61,6 +61,18 @@ export type Store = {
   scoreOf: (item: Item) => number | null
 }
 
+function withTaskNumbers(state: AppState, numbers?: Record<string, number>): AppState {
+  if (!numbers) return state
+  let changed = false
+  const items = state.items.map((item) => {
+    const number = numbers[item.id]
+    if (!Number.isSafeInteger(number) || number < 1 || number === item.number) return item
+    changed = true
+    return { ...item, number }
+  })
+  return changed ? { ...state, items } : state
+}
+
 function bump(state: AppState): AppState {
   return { ...state, updatedAt: Math.max(Date.now(), Number(state.updatedAt) + 1) }
 }
@@ -267,7 +279,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           if (result.updatedAt) remoteVersion.current = result.updatedAt
           retryCount.current = 0
-          serverBase.current = { ...state, updatedAt: result.updatedAt }
+          serverBase.current = { ...withTaskNumbers(state, result.taskNumbers), updatedAt: result.updatedAt }
+          const latest = latestState.current
+          if (latest && withTaskNumbers(latest, result.taskNumbers) !== latest) {
+            if (latest.updatedAt === submittedAt) skipSaveVersion.current = submittedAt
+            setState((current) => current ? withTaskNumbers(current, result.taskNumbers) : current)
+          }
           if (fullSaveSequence.current === submittedSequence) {
             fullSavePending.current = false
             pendingDeletedRoots.current.clear()

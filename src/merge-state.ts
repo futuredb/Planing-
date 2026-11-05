@@ -94,6 +94,18 @@ function mergeDeletions(base: AppState, local: AppState, remote: AppState, choic
 }
 
 export function mergeBoards(base: AppState, local: AppState, remote: AppState, choice: Choice = 'local') {
+  // Numbers are server-owned, not editable fields. A lost save response may
+  // leave the same newly created UUID unnumbered locally and numbered remotely.
+  const numbers = new Map(remote.items.map((item) => [item.id, item.number]))
+  const numbered = (board: AppState): AppState => ({ ...board, items: board.items.map((item) => {
+    const { number: ignored, ...rest } = item
+    void ignored
+    const number = numbers.get(item.id)
+    return number === undefined ? rest : { ...rest, number }
+  }) })
+  base = numbered(base)
+  local = numbered(local)
+  remote = numbered(remote)
   const prepared = mergeDeletions(base, local, remote, choice)
   const conflicts: string[] = []
   const state = merge(base, prepared.local, prepared.remote, 'board', choice, conflicts) as AppState

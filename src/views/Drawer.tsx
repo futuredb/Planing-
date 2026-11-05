@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 're
 import { AgentBadge } from '../AgentBadge'
 import { Avatar } from '../Avatar'
 import { AuthorMeta } from '../AuthorMeta'
+import { TaskNumber } from '../TaskNumber'
 import { memberDropBind } from '../member'
 import { ReactionBar } from '../StickerBar'
 import { filesToAttachments, isInlineImage, isInlineVideo } from '../storage'
@@ -139,6 +140,7 @@ export function Drawer({
         >
           <header className="drawer-head">
             <div className="drawer-heading">
+              <TaskNumber number={item.number} />
               <span className={`lane-badge lane-${item.lane}`}>{laneName(item.lane)}</span>
               <AgentBadge item={item} />
               <span className={`autosave autosave-${syncStatus}`} aria-live="polite">{{ saved: 'Сохранено', saving: 'Сохраняем…', retry: 'Не сохранено, повторяем…', error: 'Не удалось сохранить', conflict: 'Нужно разрешить конфликт' }[syncStatus]}</span>

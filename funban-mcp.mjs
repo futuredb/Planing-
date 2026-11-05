@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { parseTaskNumber } from './task-numbers.mjs'
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server'
 import * as z from 'zod/v4'
 
@@ -12,7 +13,9 @@ const SEARCH_STOP_WORDS = new Set([
   'or', 'task', 'to', 'with',
 ])
 
-const INSTRUCTIONS = `Перед первой записью в каждом чате выясни у пользователя имя исполнителя по умолчанию и сохрани его в контексте разговора. При создании задачи всегда передавай assigneeName: явное имя из запроса имеет приоритет, иначе используй имя по умолчанию. Общий токен не является личностью пользователя. Перед КАЖДЫМ create_task обязательно вызови search_tasks: ищи не только дубли, но и родительские инициативы, задачи про тот же продукт или проблему и возможные зависимости. Пользователь не обязан отдельно просить о связях. Сравни заголовки и описания найденных задач, передай осмысленно связанные точные id в relatedTaskIds и кратко объясни решение в relationDecision. Пустой relatedTaskIds допустим только когда после поиска действительно нет содержательно связанной задачи; отсутствие явной просьбы о связи не является причиной оставить его пустым. Без отдельного подтверждения не удаляй задачи, не закрывай спринт и не меняй роли.`
+const taskReference = z.union([z.string().trim().min(1), z.number().int().positive().max(Number.MAX_SAFE_INTEGER)]).describe('Номер задачи: #123, 123 или прежний полный id')
+
+const INSTRUCTIONS = `Если пользователь указал #123, используй этот номер в taskId без поиска по названию. Номера доступны в поле number и reference результатов. search_tasks с query="#123" возвращает точную задачу, включая архив. Для переноса в архив вызови update_task с lane="archive", для возврата — с lane="backlog" или другим рабочим статусом. Перед первым созданием задачи в каждом чате выясни у пользователя имя исполнителя по умолчанию и сохрани его в контексте разговора. При создании задачи всегда передавай assigneeName: явное имя из запроса имеет приоритет, иначе используй имя по умолчанию. Общий токен не является личностью пользователя. Перед КАЖДЫМ create_task обязательно вызови search_tasks: ищи не только дубли, но и родительские инициативы, задачи про тот же продукт или проблему и возможные зависимости. Пользователь не обязан отдельно просить о связях. Сравни заголовки и описания найденных задач, передай осмысленно связанные точные id в relatedTaskIds и кратко объясни решение в relationDecision. Пустой relatedTaskIds допустим только когда после поиска действительно нет содержательно связанной задачи; отсутствие явной просьбы о связи не является причиной оставить его пустым. Без отдельного подтверждения не удаляй задачи, не закрывай спринт и не меняй роли.`
 
 function normalize(value) {
   return String(value ?? '')
@@ -119,16 +122,16 @@ function resolveSprint(state, lane, requested, timeZone) {
   return ensureSprint(state, requested)
 }
 
-function validateTaskId(state, id, label = 'Задача') {
-  const item = state.items.find((candidate) => candidate.id === id)
-  if (!item) throw new Error(`${label} с id «${id}» не найдена`)
+function validateTaskId(state, reference, label = 'Задача') {
+  const number = parseTaskNumber(reference)
+  const item = state.items.find((candidate) => number !== null ? candidate.number === number : candidate.id === reference)
+  if (!item) throw new Error(`${label} «${reference}» не найдена`)
   return item
 }
 
-function validateRelations(state, taskId, ids) {
-  const unique = [...new Set(ids ?? [])].filter((id) => id !== taskId)
-  for (const id of unique) validateTaskId(state, id, 'Связанная задача')
-  return unique
+function validateRelations(state, taskId, references) {
+  const ids = (references ?? []).map((reference) => validateTaskId(state, reference, 'Связанная задача').id)
+  return [...new Set(ids)].filter((id) => id !== taskId)
 }
 
 function validateScores(state, scores) {
@@ -148,6 +151,9 @@ function taskView(state, item, publicUrl) {
   const assignee = state.members.find((member) => member.id === item.assigneeId)
   return {
     id: item.id,
+    number: item.number,
+    reference: `#${item.number}`,
+    archivedAt: item.archivedAt,
     title: item.title,
     description: item.body,
     lane: item.lane,
@@ -182,7 +188,7 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
   return createMcpHandler(
     () => {
       const server = new McpServer(
-        { name: 'funban', version: '0.1.0' },
+        { name: 'funban', version: '0.2.0' },
         { instructions: INSTRUCTIONS },
       )
 
@@ -215,7 +221,9 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
               todo: 'Запланировано в спринт',
               doing: 'В работе',
               done: 'Готово',
+              archive: 'Архив; задачи можно искать и возвращать в работу',
             },
+            taskReferenceRule: 'Используй короткий номер #123 в taskId, parentId и relatedTaskIds. Полный id также поддерживается. Для архива: update_task(lane: archive); для возврата: lane: backlog.',
             defaultAssigneeRule:
               'Возьми имя по умолчанию из текущего чата. Явно указанный в задаче участник имеет приоритет.',
             relationRule:
@@ -231,7 +239,7 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
           description:
             'Обязательный шаг перед create_task: найти дубли, родительские инициативы и смысловые зависимости. Поиск ранжирует совпадения по ключевым словам и возвращает точные id с причиной совпадения; если результатов мало, повтори с другим ключевым понятием.',
           inputSchema: z.object({
-            query: z.string().max(300).default('').describe('Слова из заголовка или описания'),
+            query: z.string().max(300).default('').describe('Точный номер #123 / 123, полный id или слова из заголовка и описания; архив тоже включён'),
             lane: z.enum(ALL_LANES).optional().describe('Ограничить поиск одной колонкой'),
             limit: z.number().int().min(1).max(50).default(10),
           }),
@@ -241,9 +249,12 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
           const state = await repository.read()
           if (!state) throw new Error('Доска Funban ещё не создана')
           const needle = normalize(query)
+          const number = parseTaskNumber(query)
+          const exactId = state.items.some((item) => item.id === query.trim())
           return state.items
+            .filter((item) => number !== null ? item.number === number : !exactId || item.id === query.trim())
             .filter((item) => !lane || item.lane === lane)
-            .map((item) => ({ item, ...searchRelevance(item, query) }))
+            .map((item) => ({ item, ...(number !== null || exactId ? { score: 1000, matchedTerms: [query.trim()] } : searchRelevance(item, query)) }))
             .filter(({ score }) => !needle || score > 0)
             .sort((left, right) => right.score - left.score || right.item.createdAt - left.item.createdAt)
             .slice(0, limit)
@@ -277,9 +288,9 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
               .string()
               .nullable()
               .describe('Явный исполнитель или исполнитель по умолчанию из текущего чата; null — без исполнителя'),
-            parentId: z.string().nullable().default(null),
+            parentId: taskReference.nullable().default(null),
             relatedTaskIds: z
-              .array(z.string())
+              .array(taskReference)
               .max(20)
               .describe('Точные id осмысленно связанных задач из результатов search_tasks; [] только если подходящих задач нет'),
             relationSearchQueries: z
@@ -357,13 +368,13 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
         'update_task',
         {
           title: 'Обновить задачу в Funban',
-          description: 'Обновить безопасные поля существующей задачи. Не удаляет и не архивирует задачи.',
+          description: 'Обновить задачу по номеру #123 / 123 или полному id. lane=archive переносит в архив; другой статус возвращает из архива. Не удаляет задачи.',
           inputSchema: z.object({
             requestId: z.string().min(8).max(120),
-            taskId: z.string().min(1),
+            taskId: taskReference,
             title: z.string().trim().min(1).max(180).optional(),
             description: z.string().max(8000).optional(),
-            lane: z.enum(ACTIVE_LANES).optional(),
+            lane: z.enum(ALL_LANES).optional(),
             sprint: z.string().optional(),
             assigneeName: z.string().nullable().optional(),
             scores: z.record(z.string(), z.number()).optional(),
@@ -394,7 +405,7 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
                   ? item.sprintId
                   : resolveSprint(state, item.lane, input.sprint, timeZone)
               }
-              item.archivedAt = null
+              item.archivedAt = item.lane === 'archive' ? (item.archivedAt ?? Date.now()) : null
 
               return {
                 state,
@@ -411,26 +422,26 @@ export function createFunbanMcpHandler({ repository, publicUrl, timeZone = 'Euro
         {
           title: 'Связать задачи в Funban',
           description:
-            'Добавить двусторонние связи между существующими задачами. Сначала найди их точные id через search_tasks.',
+            'Добавить двусторонние связи между задачами, включая архив. Принимает номера #123 / 123 и прежние полные id.',
           inputSchema: z.object({
             requestId: z.string().min(8).max(120),
-            taskId: z.string().min(1),
-            relatedTaskIds: z.array(z.string()).min(1).max(20),
+            taskId: taskReference,
+            relatedTaskIds: z.array(taskReference).min(1).max(20),
           }),
           annotations: { destructiveHint: false, idempotentHint: true },
         },
         safeTool(async ({ requestId, taskId, relatedTaskIds }) =>
           repository.mutate({ action: 'link_tasks', requestId }, (state) => {
             const item = validateTaskId(state, taskId)
-            const relatedIds = validateRelations(state, taskId, relatedTaskIds)
+            const relatedIds = validateRelations(state, item.id, relatedTaskIds)
             item.relatedIds = [...new Set([...(item.relatedIds ?? []), ...relatedIds])]
             for (const relatedId of relatedIds) {
               const related = validateTaskId(state, relatedId)
-              related.relatedIds = [...new Set([...(related.relatedIds ?? []), taskId])]
+              related.relatedIds = [...new Set([...(related.relatedIds ?? []), item.id])]
             }
             return {
               state,
-              touchedIds: [taskId, ...relatedIds],
+              touchedIds: [item.id, ...relatedIds],
               result: { task: taskView(state, item, publicUrl) },
             }
           }),

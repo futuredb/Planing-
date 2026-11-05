@@ -429,7 +429,7 @@ test('удаление родителя очищает всех потомков
   await page.reload()
   await page.getByRole('button', { name: 'Поиск задач', exact: true }).click()
   await page.getByRole('searchbox', { name: 'Найти задачу' }).fill('Родитель для удаления')
-  await page.getByRole('button', { name: /Родитель для удаления Входящие/ }).click()
+  await page.getByRole('button', { name: /Родитель для удаления #\d+ · Входящие/ }).click()
   await page.getByRole('button', { name: 'Другие действия', exact: true }).click()
   await page.getByRole('button', { name: 'Удалить задачу…', exact: true }).click()
   await page.getByRole('alertdialog', { name: 'Удалить задачу?' }).getByRole('button', { name: 'Удалить', exact: true }).click()

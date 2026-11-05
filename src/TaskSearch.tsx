@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Item, Lane, Member } from './types'
+import { parseTaskNumber } from '../task-numbers.mjs'
 import { Icon } from './ui/Icon'
 
 const laneNames: Record<Lane, string> = {
@@ -25,7 +26,10 @@ export function TaskSearch({ items, members, onOpen }: {
   const matches = useMemo(() => {
     const terms = normalize(query).split(/\s+/).filter(Boolean)
     if (!terms.length) return []
+    const number = parseTaskNumber(query)
     return items.filter((item) => {
+      if (number !== null) return item.number === number
+      if (item.id === query.trim()) return true
       const content = normalize(`${item.title} ${item.body}`)
       return terms.every((term) => content.includes(term))
     }).sort((a, b) => {
@@ -82,7 +86,7 @@ export function TaskSearch({ items, members, onOpen }: {
                     <li key={item.id}>
                       <button type="button" onClick={() => { setOpen(false); setQuery(''); onOpen(item.id) }}>
                         <strong>{item.title || 'Без названия'}</strong>
-                        <span>{laneNames[item.lane]}{assignee ? ` · ${assignee.name}` : ''}</span>
+                        <span>{item.number ? `#${item.number} · ` : ''}{laneNames[item.lane]}{assignee ? ` · ${assignee.name}` : ''}</span>
                       </button>
                     </li>
                   )

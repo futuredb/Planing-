@@ -44,6 +44,8 @@ export type Attachment = {
 }
 
 export type Item = {
+  /** Assigned permanently by the server; absent only on unsaved local tasks. */
+  number?: number
   id: string
   title: string
   body: string

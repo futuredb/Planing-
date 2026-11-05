@@ -41,6 +41,7 @@ export type SaveStateResult = {
   ok: boolean
   updatedAt: number
   preservedIds: string[]
+  taskNumbers?: Record<string, number>
   conflict?: boolean
   error?: string
 }
@@ -86,6 +87,7 @@ export async function saveState(
       ok: result.ok === true,
       updatedAt: Number(result.updatedAt ?? state.updatedAt),
       preservedIds: Array.isArray(result.preservedIds) ? result.preservedIds : [],
+      taskNumbers: result.taskNumbers,
     }
   } catch {
     /* offline / preview without API */

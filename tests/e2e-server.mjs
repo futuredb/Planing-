@@ -50,6 +50,15 @@ const proxy = http.createServer(async (req, res) => {
     const chunks = []
     for await (const chunk of req) chunks.push(chunk)
     const body = Buffer.concat(chunks)
+    if (req.url === '/__test/restart' && req.method === 'POST') {
+      await stop(); await start()
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); return
+    }
+    if (req.url === '/__test/numbering-backup') {
+      const backup = await readFile(`${dataFile}.before-task-numbers.json`, 'utf8').then(JSON.parse).catch(() => null)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ exists: Boolean(backup), items: backup?.items.length, numbered: backup?.items.some((item) => item.number !== undefined) })); return
+    }
     if (req.url === '/__test/portal' && req.method === 'POST') {
       const input = JSON.parse(body)
       if (Object.hasOwn(input, 'session')) portalSession = input.session
@@ -78,7 +87,7 @@ const proxy = http.createServer(async (req, res) => {
     if (req.url === '/__test/reset' && req.method === 'POST') {
       portalSession = 'lily'; portal.controls.unavailable = false
       await stop()
-      await Promise.all([`${dataFile}.mcp.json`, `${dataFile}.audit.jsonl`].map((file) => rm(file, { force: true })))
+      await Promise.all([`${dataFile}.mcp.json`, `${dataFile}.audit.jsonl`, `${dataFile}.before-task-numbers.json`].map((file) => rm(file, { force: true })))
       await writeFile(dataFile, body)
       await start()
       Object.assign(controls, { failWrites: false, rejectWrites: false, freezePoll: false, delayWrite: 0, delayMove: 0, delayNextMove: 0 })

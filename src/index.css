@@ -3376,3 +3376,19 @@ button.linked-row {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* Permanent reference accepted by the agent; keep the existing card layout. */
+.task-number {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: all;
+  cursor: text;
+}
+.task-card > .task-number { display: block; margin-bottom: 4px; }

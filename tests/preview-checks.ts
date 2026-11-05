@@ -18,7 +18,7 @@ function fixture(): AppState {
   s.comments = ['root', 'child-0', 'grandchild', 'peer'].map((id) => ({ id: `comment-${id}`, itemId: id, authorId: 'm1', text: `Комментарий ${id}`, createdAt: Date.now() }))
   return s
 }
-async function reset(s = fixture()) { const r = await fetch('/__test/reset', { method: 'POST', body: JSON.stringify(s) }); assert(r.ok, `reset ${r.status}`); return s }
+async function reset(s = fixture()) { const r = await fetch('/__test/reset', { method: 'POST', body: JSON.stringify(s) }); assert(r.ok, `reset ${r.status}`); Object.assign(s, await state()); return s }
 async function state(): Promise<AppState> { const r = await fetch('/__test/direct/api/state'); assert(r.ok, `GET ${r.status}`); return r.json() }
 async function save(s: AppState, deleted: string[] = []) { return fetch('/__test/direct/api/state', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Funban-Base-Updated-At': String(s.updatedAt), 'X-Funban-Deleted-Roots': JSON.stringify(deleted) }, body: JSON.stringify(s) }) }
 async function move(input: unknown, id = 'move') { return fetch(`/__test/direct/api/items/${id}/move`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }) }
@@ -87,6 +87,112 @@ async function run() {
   await check('MCP: доступ без токена закрыт',async()=>{await reset();const r=await fetch('/__test/direct/mcp',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert(r.status===401,`MCP ${r.status}`)})
   await check('MCP: контекст и список инструментов',async()=>{await reset();const tools=await rpc('tools/list');assert(tools.tools.length===5,'Список инструментов');const context=toolJson(await rpc('tools/call',{name:'get_context',arguments:{}}));assert(context.members.length===5,'Участники')})
   await check('MCP: создание, повтор, поиск, редактирование, связи',async()=>{await reset();toolJson(await rpc('tools/call',{name:'search_tasks',arguments:{query:'ТЕСТ Переносы',limit:10}}));const input={requestId:'preview-create-001',title:'ТЕСТ MCP отдельная задача',description:'Проверка API из превью',lane:'todo',sprint:'next',assigneeName:'Саша',relatedTaskIds:['move'],relationSearchQueries:['ТЕСТ Переносы'],relationDecision:'Связана с проверкой переносов задач через API'};const created=toolJson(await rpc('tools/call',{name:'create_task',arguments:input}));const repeated=toolJson(await rpc('tools/call',{name:'create_task',arguments:input}));assert(repeated.deduplicated&&created.task.id===repeated.task.id,'Создан дубликат');const found=toolJson(await rpc('tools/call',{name:'search_tasks',arguments:{query:'MCP отдельная',limit:10}}));assert(found.some((i:{id:string})=>i.id===created.task.id),'Поиск не нашёл задачу');const updated=toolJson(await rpc('tools/call',{name:'update_task',arguments:{requestId:'preview-update-001',taskId:created.task.id,lane:'doing',assigneeName:'Ваня'}}));assert(updated.task.assignee.name==='Ваня'&&updated.task.sprintId===created.task.sprintId,'Обновление потеряло данные');toolJson(await rpc('tools/call',{name:'link_tasks',arguments:{requestId:'preview-link-001',taskId:created.task.id,relatedTaskIds:['single']}}));const s=await state();assert(s.items.find(i=>i.id==='single')!.relatedIds.includes(created.task.id),'Нет обратной связи');assert(s.items.filter(i=>i.id===created.task.id).length===1,'Дубликат')})
+  await check('Номера: миграция старых задач и резервная копия', async () => {
+    await reset()
+    const s = await state()
+    const numbers = s.items.map(i => i.number)
+    assert(numbers.every(n => Number.isSafeInteger(n) && n! > 0) && new Set(numbers).size === 15, 'Номера не назначены или повторяются')
+    const backup = await (await fetch('/__test/numbering-backup')).json()
+    assert(backup.exists && backup.items === 15 && !backup.numbered, 'Нет исходной копии перед миграцией')
+    const context = toolJson(await rpc('tools/call', {name:'get_context',arguments:{}}))
+    assert(context.lanes.archive && context.taskReferenceRule, 'Агент не знает об архиве и номерах')
+  })
+  await check('Номера: 1005 задач, точный поиск и изменение #1000', async () => {
+    const s = createEmpty()
+    s.comments = []
+    s.items = Array.from({length:1005}, (_,i) => item(`large-${i}`, {title:`Большая доска ${i}`,createdAt:1000000+i}))
+    await reset(s)
+    const saved = await state()
+    assert(new Set(saved.items.map(i=>i.number)).size===1005 && Math.max(...saved.items.map(i=>i.number!))===1005,'Ошибка после тысячи')
+    const target = saved.items.find(i=>i.number===1000)!
+    const found = toolJson(await rpc('tools/call',{name:'search_tasks',arguments:{query:'#1000'}}))
+    assert(found.length===1 && found[0].id===target.id && found[0].reference==='#1000','Номер спутан с названием')
+    const updated = toolJson(await rpc('tools/call',{name:'update_task',arguments:{requestId:'number-1000-update',taskId:'#1000',title:'Обновлено по номеру'}}))
+    assert(updated.task.id===target.id && updated.task.number===1000 && (await state()).items.length===1005,'Обновлена другая задача')
+  })
+  await check('Номера: удалённый номер не выдаётся повторно; клиент не перенумеровывает', async () => {
+    const seed = createEmpty(); seed.comments=[]
+    seed.items=[item('first',{createdAt:1}),item('second',{createdAt:2}),item('last',{createdAt:3})]
+    await reset(seed)
+    let s = await state()
+    const numbers = new Map(s.items.map(i=>[i.id,i.number]))
+    const highest = s.items.reduce((a,b)=>a.number!>b.number!?a:b)
+    const removed = highest
+    s.items = s.items.filter(i=>i.id!==removed.id)
+    assert((await save(s,[removed.id])).ok,'Удаление не записано')
+    assert((await fetch('/__test/restart',{method:'POST'})).ok,'Перезапуск после удаления')
+    s = await state()
+    s.items.forEach(i=>{i.number=999999})
+    s.items.unshift(item('new-number', {number:removed.number}))
+    assert((await save(s)).ok,'Сохранение с устаревшими номерами отклонено')
+    const result = await state()
+    assert(result.items.find(i=>i.id==='new-number')!.number!>highest.number!, 'Номер переиспользован')
+    assert(result.items.filter(i=>i.id!=='new-number').every(i=>i.number===numbers.get(i.id)),'Клиент поменял номера')
+    const max=Math.max(...result.items.map(i=>i.number!)), deleted=result.items.map(i=>i.id)
+    result.items=[];result.comments=[]
+    assert((await save(result,deleted)).ok,'Очистка одноразовой доски')
+    assert((await fetch('/__test/restart',{method:'POST'})).ok,'Перезапуск пустой доски')
+    const empty=await state();empty.items.push(item('after-empty'))
+    assert((await save(empty)).ok && (await state()).items[0].number!>max,'Счётчик сбросился на пустой доске')
+  })
+  await check('Номера: конкурентное создание, повтор запроса и перезапуск', async () => {
+    await reset()
+    const create = (requestId:string) => rpc('tools/call',{name:'create_task',arguments:{requestId,title:'Одинаковое название',assigneeName:null,relatedTaskIds:[],relationSearchQueries:['уникальная проверка номеров'],relationDecision:'После поиска содержательно связанных задач нет'}}).then(toolJson)
+    const [a,b] = await Promise.all([create('numbers-concurrent-a'),create('numbers-concurrent-b')])
+    assert(a.task.number!==b.task.number && a.task.id!==b.task.id,'Дубли при создании')
+    const repeat = await create('numbers-concurrent-a')
+    assert(repeat.deduplicated && repeat.task.number===a.task.number,'Повтор получил новый номер')
+    assert((await fetch('/__test/restart',{method:'POST'})).ok,'Перезапуск не удался')
+    const s=await state()
+    assert(s.items.find(i=>i.id===a.task.id)?.number===a.task.number,'Номер изменился после перезапуска')
+    const c=await create('numbers-after-restart')
+    assert(c.task.number>Math.max(a.task.number,b.task.number),'Счётчик сбросился')
+  })
+  await check('Номера: две вкладки объединяют новые задачи без дублей номеров', async () => {
+    await reset()
+    const base=await state(),a=structuredClone(base),b=structuredClone(base)
+    a.items.unshift(item('tab-a'));b.items.unshift(item('tab-b'))
+    const writes=await Promise.all([save(a),save(b)])
+    assert(writes.filter(r=>r.ok).length===1 && writes.some(r=>r.status===409),'Нет защиты версий')
+    const remote=await state(),local=writes[0].ok?b:a
+    const merged=mergeBoards(base,local,remote)
+    assert(!merged.conflicts.length,'Ложный конфликт номеров')
+    assert((await save(merged.state)).ok,'Объединение не записалось')
+    const s=await state()
+    assert(s.items.some(i=>i.id==='tab-a') && s.items.some(i=>i.id==='tab-b') && new Set(s.items.map(i=>i.number)).size===s.items.length,'Новые задачи потеряны или номера повторились')
+  })
+  await check('MCP: архивирование по #номеру, поиск в архиве и восстановление по числу', async () => {
+    await reset()
+    const before=await state(),target=before.items.find(i=>i.id==='move')!,peer=before.items.find(i=>i.id==='peer')!
+    const archived=toolJson(await rpc('tools/call',{name:'update_task',arguments:{requestId:'archive-by-number',taskId:`#${target.number}`,lane:'archive'}}))
+    assert(archived.task.lane==='archive' && archived.task.number===target.number && archived.task.sprintId===null && archived.task.archivedAt>0,'Архивирование неполное')
+    const found=toolJson(await rpc('tools/call',{name:'search_tasks',arguments:{query:`#${target.number}`,lane:'archive'}}))
+    assert(found.length===1 && found[0].id===target.id,'Архив не доступен поиску')
+    const renamed=toolJson(await rpc('tools/call',{name:'update_task',arguments:{requestId:'archive-rename',taskId:String(target.number),title:'Архив по номеру'}}))
+    assert(renamed.task.archivedAt===archived.task.archivedAt,'Изменилась дата архива')
+    toolJson(await rpc('tools/call',{name:'link_tasks',arguments:{requestId:'archive-links',taskId:`#${target.number}`,relatedTaskIds:[peer.number,peer.id,`#${target.number}`]}}))
+    const linked=await state()
+    assert(linked.items.find(i=>i.id===target.id)!.relatedIds.length===1 && linked.items.find(i=>i.id===peer.id)!.relatedIds.includes(target.id),'Номера попали во внутренние связи или нет дедупликации')
+    const restored=toolJson(await rpc('tools/call',{name:'update_task',arguments:{requestId:'restore-by-number',taskId:target.number,lane:'todo'}}))
+    assert(restored.task.number===target.number && restored.task.lane==='todo' && restored.task.archivedAt===null && restored.task.sprintId,'Возврат из архива потерял данные')
+    assert((await state()).items.length===before.items.length,'Задача удалена вместо архива')
+  })
+  await check('MCP: номер родителя и связанных задач преобразуется в точные id', async () => {
+    await reset();const s=await state(),parent=s.items.find(i=>i.id==='root')!,peer=s.items.find(i=>i.id==='peer')!
+    const created=toolJson(await rpc('tools/call',{name:'create_task',arguments:{requestId:'number-parent-create',title:'Дочерняя по номеру',assigneeName:null,parentId:`#${parent.number}`,relatedTaskIds:[peer.number],relationSearchQueries:['Каскадное удаление'],relationDecision:'Это часть родительской проверки и связана с независимой задачей'}}))
+    assert(created.task.parentId===parent.id && created.task.relatedTaskIds[0]===peer.id && created.task.number>0,'Ссылки остались короткими номерами')
+    const result=await rpc('tools/call',{name:'update_task',arguments:{requestId:'unknown-number-update',taskId:'#99999999',title:'Не должна появиться'}})
+    assert(result.isError && !(await state()).items.some(i=>i.title==='Не должна появиться'),'Неизвестный номер изменил задачу')
+  })
+  await check('Merge: серверный номер после потерянного ответа не создаёт конфликт',()=>{
+    const base=fixture(),local=structuredClone(base),remote=structuredClone(base)
+    const created=item('lost-response',{title:'Сохранённая задача'})
+    local.items.unshift(created);remote.items.unshift({...created,number:1001})
+    const merged=mergeBoards(base,local,remote)
+    assert(!merged.conflicts.length && merged.state.items.find(i=>i.id===created.id)?.number===1001,'Номер вызвал конфликт')
+    local.items[0].body='Локальный вариант';remote.items[0].body='Удалённый вариант'
+    assert(mergeBoards(base,local,remote).conflicts.length>0,'Настоящий конфликт скрыт')
+  })
   await check('Merge: независимые изменения',()=>{const b=fixture(),l=structuredClone(b),r=structuredClone(b);l.items[0].body='Локально';r.items[1].body='Команда';const m=mergeBoards(b,l,r);assert(!m.conflicts.length && m.state.items[0].body==='Локально' && m.state.items[1].body==='Команда','Изменения потеряны')})
   await check('Merge: конфликт одного поля',()=>{const b=fixture(),l=structuredClone(b),r=structuredClone(b);l.items[0].body='Локально';r.items[0].body='Команда';assert(mergeBoards(b,l,r).conflicts.length===1,'Конфликт скрыт');assert(mergeBoards(b,l,r,'remote').state.items[0].body==='Команда','Выбор не применён')})
   for(const change of ['comment','child','link','edit'])for(const choice of ['local','remote'] as const)await check(`Merge: удаление + ${change}, выбор ${choice}`,()=>{const b=fixture(),l=structuredClone(b),r=structuredClone(b);const ids=new Set(['root',...Array.from({length:7},(_,i)=>`child-${i}`),'grandchild']);l.items=l.items.filter(i=>!ids.has(i.id)).map(i=>({...i,relatedIds:i.relatedIds.filter(id=>!ids.has(id))}));l.comments=l.comments.filter(c=>!ids.has(c.itemId));if(change==='comment')r.comments.push({id:'new',itemId:'root',authorId:'m2',text:'Новый комментарий',createdAt:Date.now()});if(change==='child')r.items.push(item('new-child',{parentId:'root'}));if(change==='link')r.items.find(i=>i.id==='single')!.relatedIds=['root'];if(change==='edit')r.items.find(i=>i.id==='grandchild')!.body='Чужая правка';const m=mergeBoards(b,l,r,choice);assert(m.conflicts.length>0,'Удаление с чужими зависимыми правками должно потребовать выбора');assert(graphValid(m.state),'Получился осиротевший граф');if(choice==='local')assert(!m.state.items.some(i=>i.id==='root'),'Удаление потеряно');else assert(m.state.items.some(i=>i.id==='root'),'Родитель не восстановлен')})

@@ -164,10 +164,13 @@ test('MCP creates assigned linked tasks once and protects them from a stale tab'
   assert.equal(initialResponse.status, 200)
   assert.equal(initialResponse.headers.get('www-authenticate'), null)
   const initialPayload = await initialResponse.json()
-  assert.ok(
-    Number(initialResponse.headers.get('content-length')) <
-      Buffer.byteLength(JSON.stringify(initialState)),
-  )
+  // New server-owned numbers and session metadata can outweigh a tiny fixture
+  // image. Check the transport contract rather than the total JSON byte count.
+  assert.ok(initialPayload.items.every((item) =>
+    item.attachments.every((attachment) => attachment.dataUrl.startsWith('/api/attachments/')),
+  ))
+  assert.ok(initialPayload.items.every((item) => Number.isSafeInteger(item.number)))
+  assert.equal(new Set(initialPayload.items.map((item) => item.number)).size, initialPayload.items.length)
   assert.equal(initialPayload.items.length, initialState.items.length)
   assert.equal(initialPayload.items[0].attachments[0].dataUrl, '/api/attachments/pixel-1')
 

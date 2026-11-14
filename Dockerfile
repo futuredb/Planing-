@@ -12,6 +12,7 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY activity.mjs futuredb-telemetry.mjs server.mjs portal-auth.mjs funban-mcp.mjs state-repository.mjs state-transport.mjs state-operations.mjs task-numbers.mjs ./
+COPY priority-score.mjs inbox-clarifier.mjs trendwatch-contract.mjs trendwatch-service.mjs trendwatch-worker.mjs trendwatch-lite.mjs trendwatch-codex.mjs trendwatch-openrouter.mjs trendwatch-concepts.mjs trendwatch-quick.mjs ./
 RUN mkdir -p /data
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \

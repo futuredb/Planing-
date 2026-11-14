@@ -31,3 +31,20 @@ output/playwright
 
 # Private pre-migration state backup
 *.before-task-numbers.json
+*.trendwatch/
+data/local-development/
+
+# Server credentials
+.env
+.env.*
+!.env.example
+
+# Local QA output and retired presentation variants
+/output/*
+!/output/share/
+/output/share/*
+!/output/share/Funban-presentation.html
+!/output/share/Funban-interactive.html
+!/output/share/Funban-for-lead.html
+!/output/share/Funban-for-lead.zip
+!/output/share/Как открыть.txt

@@ -338,9 +338,14 @@ export function Drawer({
                 <div className="score-summary">
                   <span className="eyebrow">Итоговая оценка</span>
                   <strong>{scoreOf(item) ?? '—'}</strong>
-                  <p>Позитивные критерии усредняются, а напряг снижает итоговый балл.</p>
+                  <p>{item.priorityScore !== undefined ? 'Оценка приоритета от 0 до 10. Её можно изменить.' : 'Позитивные критерии усредняются, а напряг снижает итоговый балл.'}</p>
                 </div>
-                <div className="score-list">
+                {item.priorityScore !== undefined ? <label className="research-quick-score">Оценка приоритета
+                  <input type="number" min={0} max={10} step="any" value={item.priorityScore} onChange={event=>{
+                    const value=event.target.valueAsNumber
+                    if(Number.isFinite(value)&&value>=0&&value<=10)updateItem(item.id,{priorityScore:value})
+                  }}/><span>/ 10</span>
+                </label> : <div className="score-list">
                   {state.criteria.map((criterion) => (
                     <div key={criterion.id} className="score-control">
                       <div>
@@ -364,6 +369,14 @@ export function Drawer({
                     </div>
                   ))}
                 </div>
+                }
+                {item.trendwatchDecision ? <details className="research-context">
+                  <summary>Решение по рекомендации трендвотча</summary>
+                  <p className="research-muted">Подтвердил(а): {item.trendwatchDecision.confirmedByName} · {new Date(item.trendwatchDecision.confirmedAt).toLocaleString('ru-RU')}</p>
+                  <p className="research-muted">Оценки на момент подтверждения: {item.trendwatchDecision.score !== undefined ? `${item.trendwatchDecision.score}/10` : state.criteria.map(c => `${c.name}: ${item.trendwatchDecision?.scores[c.id] ?? '—'}`).join(' · ')}. Текущие оценки могут быть изменены вручную.</p>
+                  {item.trendwatchDecision.comment ? <p>{item.trendwatchDecision.comment}</p> : null}
+                  <a className="text-button" href={`/api/items/${encodeURIComponent(item.id)}/trendwatch/report?jobId=${encodeURIComponent(item.trendwatchDecision.jobId)}`} target="_blank" rel="noopener noreferrer">Отчёт исследования</a>
+                </details> : null}
               </div>
             ) : null}
 

@@ -1,3 +1,4 @@
+import { openRouterConfigurationMessage } from './trendwatch-openrouter.mjs'
 import { committedActions } from './activity.mjs'
 import {httpMiddleware,emit} from './futuredb-telemetry.mjs';
 /**
@@ -15,6 +16,8 @@ import { createStateRepository } from './state-repository.mjs'
 import { moveTask } from './state-operations.mjs'
 import { decodeImageDataUrl, findAttachment, stateForClient } from './state-transport.mjs'
 import { portalActor, portalRequired, portalLoginUrl, withActor } from './portal-auth.mjs'
+import { createTrendwatchService } from './trendwatch-service.mjs'
+import { createInboxClarifier } from './inbox-clarifier.mjs'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const dist = path.join(root, 'dist')
@@ -39,6 +42,20 @@ const repository = createStateRepository(stateFile, {
       void emit('action', { action, outcome: 'success', route: '/api/state' })
     }
   },
+})
+const inboxClarifier = createInboxClarifier()
+const trendwatch = createTrendwatchService({
+  draftLauncher: inboxClarifier.launch, closeDraft: inboxClarifier.close,
+  repository, directory: `${stateFile}.trendwatch`,
+  mode: process.env.FUNBAN_TRENDWATCH_MODE || 'runtime',
+  automatic: process.env.FUNBAN_TRENDWATCH_AUTO === '1',
+  reviewIntervalMs: process.env.FUNBAN_TRENDWATCH_AUTO === '1' ? 60000 : 0,
+  webSearch: process.env.FUNBAN_TRENDWATCH_WEB === '1',
+  conceptReview: process.env.FUNBAN_TRENDWATCH_CONCEPTS === '1',
+  enabled: process.env.FUNBAN_TRENDWATCH_ENABLED === '1' && ['127.0.0.1', '::1', 'localhost'].includes(host) &&
+    ((['assisted','codex'].includes(process.env.FUNBAN_TRENDWATCH_MODE) || process.env.FUNBAN_TRENDWATCH_MODE==='openrouter'&&!openRouterConfigurationMessage()) || (!process.env.FUNBAN_TRENDWATCH_MODE||process.env.FUNBAN_TRENDWATCH_MODE==='runtime') && Boolean(process.env.FUNBAN_TRENDWATCH_ROOT) && Number(process.versions.node.split('.')[0]) >= 24),
+  root: process.env.FUNBAN_TRENDWATCH_ROOT,
+  envFile: process.env.FUNBAN_TRENDWATCH_ENV_FILE,
 })
 const mcpHandler = createFunbanMcpHandler({
   repository,
@@ -212,6 +229,67 @@ async function handleRequest(req, res) {
     return
   }
 
+  if(url==='/api/inbox/clarify'){
+    if(!actor){send(res,401,JSON.stringify({error:'Войдите в портал'}),'application/json');return}
+    if(req.method!=='POST'){send(res,405,'Method Not Allowed');return}
+    const controller=new AbortController(),abort=()=>controller.abort()
+    res.once('close',abort)
+    try{
+      const input=JSON.parse(await readBody(req,20*1024))
+      const result=await trendwatch.clarifyDraft(input,actor,controller.signal)
+      if(!res.destroyed)send(res,200,JSON.stringify(result),'application/json; charset=utf-8')
+    }catch(error){
+      if(!res.destroyed)send(res,error?.name==='ZodError'||error instanceof SyntaxError?422:503,JSON.stringify({question:null}),'application/json')
+    }finally{res.removeListener('close',abort)}
+    return
+  }
+
+  if(url==='/api/backlog/trendwatch'){
+    if(!actor){send(res,401,JSON.stringify({error:'Войдите в портал'}),'application/json');return}
+    try{
+      let result
+      if(req.method==='GET')result=await trendwatch.backlog()
+      else if(req.method==='POST')result=await trendwatch.startBacklog(JSON.parse(await readBody(req,2048)),actor)
+      else if(req.method==='DELETE')result=await trendwatch.cancelBacklog(JSON.parse(await readBody(req,2048)),actor)
+      else{send(res,405,'Method Not Allowed');return}
+      send(res,200,JSON.stringify(result),'application/json; charset=utf-8')
+    }catch(error){const invalid=error?.name==='ZodError'||error instanceof SyntaxError;send(res,error.statusCode||(invalid?422:500),JSON.stringify({error:error.statusCode?error.message:invalid?'Проверьте данные задач':'Не удалось выполнить переоценку'}),'application/json; charset=utf-8')}
+    return
+  }
+
+  const trendMatch = new URL(url, 'http://127.0.0.1').pathname.match(/^\/api\/items\/([^/]+)\/trendwatch(?:\/(confirm|report|packet|review|decision))?$/)
+  if (trendMatch) {
+    if (!actor) { send(res, 401, JSON.stringify({ error: 'Войдите в портал' }), 'application/json; charset=utf-8'); return }
+    try {
+      const itemId = decodeURIComponent(trendMatch[1]), action = trendMatch[2]
+      let result
+      if (req.method === 'GET' && !action) result = await trendwatch.get(itemId)
+      else if (req.method === 'POST' && !action) result = await trendwatch.start(itemId, JSON.parse(await readBody(req, 20 * 1024)), actor)
+      else if (req.method === 'POST' && action === 'decision') result = await trendwatch.decideReview(itemId, JSON.parse(await readBody(req, 2048)), actor)
+      else if (req.method === 'POST' && action === 'confirm') result = await trendwatch.confirm(itemId, JSON.parse(await readBody(req, 20 * 1024)), actor)
+      else if (req.method === 'POST' && action === 'review') result = await trendwatch.importReview(itemId, JSON.parse(await readBody(req, 64 * 1024)), actor)
+      else if (req.method === 'GET' && action === 'packet') {
+        const jobId = new URL(url, 'http://127.0.0.1').searchParams.get('jobId')
+        res.setHeader('X-Content-Type-Options', 'nosniff')
+        res.setHeader('Content-Disposition', 'attachment; filename="research-task.txt"')
+        send(res, 200, await trendwatch.packet(itemId, jobId), 'text/plain; charset=utf-8'); return
+      }
+      else if (req.method === 'DELETE' && !action) {
+        const input = JSON.parse(await readBody(req, 1024))
+        result = await trendwatch.cancel(itemId, input.jobId)
+      } else if (req.method === 'GET' && action === 'report') {
+        const jobId = new URL(url, 'http://127.0.0.1').searchParams.get('jobId')
+        res.setHeader('X-Content-Type-Options', 'nosniff')
+        send(res, 200, await trendwatch.report(itemId, jobId), 'text/plain; charset=utf-8'); return
+      } else { send(res, 405, 'Method Not Allowed'); return }
+      send(res, 200, JSON.stringify(result), 'application/json; charset=utf-8')
+    } catch (error) {
+      const invalid = error?.name === 'ZodError' || error instanceof SyntaxError
+      send(res, Number(error?.statusCode) || (invalid ? 422 : 500), JSON.stringify({ error: invalid ? 'Проверьте заполнение полей исследования и оценки' : error?.statusCode ? error.message : 'Не удалось выполнить действие исследования. Задача сохранена.' }), 'application/json; charset=utf-8')
+    }
+    return
+  }
+
   const moveMatch = new URL(url, 'http://127.0.0.1').pathname.match(/^\/api\/items\/([^/]+)\/move$/)
   if (moveMatch) {
     if (req.method !== 'POST') {
@@ -259,7 +337,11 @@ async function handleRequest(req, res) {
         const deleteHeader = req.headers['x-funban-deleted-roots']
         const deletedRoots = deleteHeader ? JSON.parse(String(deleteHeader)) : []
         if (!Array.isArray(deletedRoots) || deletedRoots.some((id) => typeof id !== 'string')) throw new Error('Некорректный список удалённых задач')
+        const previous = await repository.read()
         const result = await repository.replace(body, baseVersion, deletedRoots, actor)
+        // Task persistence succeeds independently of AI availability. No model is awaited here.
+        try { await trendwatch.enqueueCreated(previous, result.state, actor) }
+        catch { console.error('Automatic recommendation could not be queued; task saved, manual review available.') }
         res.end(
           JSON.stringify({
             ok: true,
@@ -317,6 +399,7 @@ server.listen(port, host, () => {
 })
 
 async function shutdown() {
+  await trendwatch.close()
   await mcpHandler.close()
   server.close()
 }

@@ -314,7 +314,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (authRequired) return
-    const t = setInterval(() => {
+    const refresh = () => {
       if (fullSavePending.current) return
       void loadRemoteIfNewer(remoteVersion.current).then((remote) => {
         if (!remote) return
@@ -327,8 +327,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         skipSaveVersion.current = Number(rebased.updatedAt) || 0
         setState(rebased)
       })
-    }, 4000)
-    return () => clearInterval(t)
+    }
+    const t = setInterval(refresh, 4000)
+    window.addEventListener('funban-refresh', refresh)
+    return () => { clearInterval(t); window.removeEventListener('funban-refresh', refresh) }
   }, [state?.updatedAt, moveTracker, authRequired])
 
   const mutate = useCallback((fn: (prev: AppState) => AppState) => {

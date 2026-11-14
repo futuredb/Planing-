@@ -66,6 +66,7 @@ function assertState(state) {
   for (const item of state.items) {
     if ((item.number !== undefined && (!Number.isSafeInteger(item.number) || item.number < 1)) ||
       !['inbox', 'backlog', 'todo', 'doing', 'done', 'archive'].includes(item.lane) ||
+      (item.priorityScore !== undefined && (!Number.isFinite(item.priorityScore) || item.priorityScore < 0 || item.priorityScore > 10)) ||
       typeof item.title !== 'string' || typeof item.body !== 'string' ||
       !Array.isArray(item.attachments) || !Array.isArray(item.stickers) ||
       !Array.isArray(item.relatedIds) || !item.scores || typeof item.scores !== 'object' || Array.isArray(item.scores) ||
@@ -223,6 +224,15 @@ export function createStateRepository(stateFile, { onChange = () => {} } = {}) {
         let incoming = JSON.parse(rawBody)
         assertState(incoming)
         incoming = attributeChanges(previous, incoming, actor)
+        // Only the authenticated confirmation endpoint can create a review receipt.
+        const decisions = new Map((previous?.items ?? []).map(item => [item.id, item.trendwatchDecision]))
+        const reviews = new Map((previous?.items ?? []).map(item => [item.id, item.priorityReview]))
+        for (const item of incoming.items) {
+          delete item.priorityReview
+          if (reviews.get(item.id)) item.priorityReview = structuredClone(reviews.get(item.id))
+          delete item.trendwatchDecision
+          if (decisions.get(item.id)) item.trendwatchDecision = decisions.get(item.id)
+        }
         assertState(incoming)
 
         if (previous && Number(baseVersion) !== Number(previous.updatedAt)) {

@@ -425,8 +425,11 @@ test('удаление родителя очищает всех потомков
   board.items.push(root, ...descendants)
   board.items[0].relatedIds.push('delete-grandchild')
   board.comments.push({ id: 'delete-comment', itemId: 'delete-grandchild', authorId: 'm1', text: 'Комментарий внука', createdAt: Date.now() })
+  // Reset restarts the backend. Unload the old page before stopping it so
+  // in-flight images/polling do not create unrelated 502 console errors.
+  await page.goto('about:blank')
   expect((await page.request.post('/__test/reset', { data: board })).ok()).toBeTruthy()
-  await page.reload()
+  await page.goto('/')
   await page.getByRole('button', { name: 'Поиск задач', exact: true }).click()
   await page.getByRole('searchbox', { name: 'Найти задачу' }).fill('Родитель для удаления')
   await page.getByRole('button', { name: /Родитель для удаления #\d+ · Входящие/ }).click()

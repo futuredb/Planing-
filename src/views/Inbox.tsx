@@ -10,6 +10,8 @@ import { filesToAttachments, isInlineImage, isInlineVideo } from '../storage'
 import { useStore } from '../store-context'
 import type { Attachment } from '../types'
 import { Icon } from '../ui/Icon'
+import { TrendwatchReview } from './TrendwatchReview'
+import { useInboxClarification } from '../useInboxClarification'
 
 export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   const { state, addIdea, pullToSprint, moveItem, assignItem, toggleReaction } = useStore()
@@ -18,6 +20,7 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   const [files, setFiles] = useState<Attachment[]>([])
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [over, setOver] = useState(false)
+  const clarification=useInboxClarification(title,body)
 
   const addFiles = useCallback(async (list: FileList | File[]) => {
     const next = await filesToAttachments(list)
@@ -35,7 +38,8 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!title.trim() && !body.trim() && !files.length) return
-    addIdea({ title, body, attachments: files })
+    addIdea({ title, body:clarification.context?[body.trim(),clarification.context].filter(Boolean).join('\n\n'):body, attachments: files })
+    clarification.reset()
     setTitle('')
     setBody('')
     setFiles([])
@@ -104,6 +108,11 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
             ) : null}
           </div>
         ) : null}
+        {clarification.question?<div className="capture-clarification">
+          <label id="inbox-clarification-question" htmlFor="inbox-clarification"><Icon name="agent" size={16}/><span>{clarification.question}</span></label>
+          <div className="capture-clarification-answer"><input id="inbox-clarification" aria-label="Необязательное уточнение" aria-describedby="inbox-clarification-question" value={clarification.answer} maxLength={500} onChange={event=>clarification.setAnswer(event.target.value)} placeholder="Можно ответить одной фразой"/><button type="button" className="text-button" onClick={clarification.skip}>Пропустить</button></div>
+          <small>Необязательно. ИИ предложит приоритет и без ответа.</small>
+        </div>:null}
         <div className="capture-toolbar">
           <div>
             <button type="button" className="toolbar-button" onClick={() => setDetailsOpen((open) => !open)}>
@@ -177,14 +186,17 @@ export function Inbox({ onOpen }: { onOpen: (id: string) => void }) {
                     <ReactionBar item={item} compact />
                   </div>
                 </div>
-                <div className="inbox-item-actions">
-                  {owner ? <AssignedFace itemId={item.id} member={owner} /> : null}
-                  <button type="button" className="secondary-button compact-button" onClick={() => moveItem(item.id, 'backlog', null)}>
-                    В бэклог
-                  </button>
-                  <button type="button" className="primary-button compact-button" onClick={() => pullToSprint(item.id)}>
-                    В спринт
-                  </button>
+                <div className="inbox-item-controls">
+                  <TrendwatchReview item={item} onOpen={onOpen} />
+                  <div className="inbox-item-actions">
+                    {owner ? <AssignedFace itemId={item.id} member={owner} /> : null}
+                    <button type="button" className="secondary-button compact-button" onClick={() => moveItem(item.id, 'backlog', null)}>
+                      В бэклог
+                    </button>
+                    <button type="button" className="primary-button compact-button" onClick={() => pullToSprint(item.id)}>
+                      В спринт
+                    </button>
+                  </div>
                 </div>
               </li>
             )

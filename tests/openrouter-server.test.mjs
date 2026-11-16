@@ -24,7 +24,7 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   Object.assign(env, { NODE_ENV: 'production', HOST: process.env.FUNBAN_TEST_BIND_HOST || '127.0.0.1', PORT: String(port),
     FUNBAN_DATA: path.join(dir, 'state.json'), FUNBAN_PUBLIC_URL: base, FUNBAN_PORTAL_IDENTITY_URL: portal.url,
     FUNBAN_TRENDWATCH_MODE: 'openrouter', FUNBAN_TRENDWATCH_ENABLED: '1', FUNBAN_OPENROUTER_SERVER: '1',
-    FUNBAN_TRENDWATCH_AUTO: '0', FUNBAN_TRENDWATCH_WEB: '1', FUNBAN_TRENDWATCH_CONCEPTS: '1',
+    FUNBAN_TRENDWATCH_AUTO: '1', FUNBAN_TRENDWATCH_WEB: '1', FUNBAN_TRENDWATCH_CONCEPTS: '1',
     OPENROUTER_API_KEY: 'synthetic-server-key', FUNBAN_OPENROUTER_MODEL: 'test/model',
     DASHBOARD_INGEST_URL: '', DASHBOARD_INGEST_TOKEN: '' })
   let child
@@ -54,16 +54,24 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   for (const route of ['/api/state', endpoint, '/api/backlog/trendwatch']) {
     assert.equal((await fetch(base + route)).status, 401)
   }
-  for (const route of [endpoint, endpoint + '/confirm', '/api/backlog/trendwatch']) {
+  for (const route of [endpoint, endpoint + '/confirm', '/api/backlog/trendwatch', '/api/inbox/clarify']) {
     assert.equal((await request(route, input, { Cookie: '' })).status, 401)
     assert.equal((await request(route, input, { Origin: 'https://untrusted.invalid' })).status, 403)
   }
   portal.controls.unavailable = true
   assert.equal((await request(endpoint)).status, 503)
+  assert.equal((await request('/api/inbox/clarify', input)).status, 503)
   portal.controls.unavailable = false
   const status = await (await request(endpoint)).json()
-  assert.equal(status.available, true); assert.equal(status.mode, 'openrouter'); assert.equal(status.automatic, false)
+  assert.equal(status.available, true); assert.equal(status.mode, 'openrouter'); assert.equal(status.automatic, true)
   assert.equal(JSON.stringify(status).includes(env.OPENROUTER_API_KEY), false)
+  const draft = { title: 'Поисследовать продажи цифровых дизайнов', body: 'Хотим увеличить продажи.' }
+  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: 'Какие именно цифровые дизайны планируем продавать?' })
+  assert.deepEqual(await (await request('/api/inbox/clarify', { ...draft, body: 'Это шаблоны презентаций' })).json(), { question: null })
+  assert.equal((await request('/api/inbox/clarify', { ...draft, title: 'x' })).status, 422)
+  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: 'Какие именно цифровые дизайны планируем продавать?' })
+  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: null }) // Three per actor / 30 seconds.
+  assert.equal((await (await request('/api/state')).json()).items.length, 1) // Draft never creates a task.
   assert.equal((await request(endpoint, input)).status, 200)
   let job
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -80,9 +88,30 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   await stop(); await start()
   assert.equal((await (await request('/api/state')).json()).items[0].priorityScore, 8)
   assert.equal((await (await request(endpoint)).json()).job.recommendation.score, 7)
+  // Save a draft answer through the real state API: automatic analysis receives it.
+  const board = await (await request('/api/state')).json()
+  const answeredBody = draft.body + '\n\nУточнение: Какие именно цифровые дизайны планируем продавать?\nОтвет: Шаблоны презентаций'
+  const incoming = { ...item, id: 'answered', lane: 'inbox', title: draft.title, body: answeredBody, priorityScore: undefined }
+  const put = await fetch(base + '/api/state', { method: 'PUT', headers: {
+    Cookie: 'funban_preview_session=lily', Origin: base, 'Content-Type': 'application/json',
+    'X-Funban-Base-Updated-At': String(board.updatedAt),
+  }, body: JSON.stringify({ ...board, items: [...board.items, incoming] }) })
+  assert.equal(put.status, 200, await put.text())
+  let automaticJob
+  for (let attempt = 0; attempt < 100; attempt++) {
+    automaticJob = (await (await request('/api/items/answered/trendwatch')).json()).job
+    if (['ready', 'failed'].includes(automaticJob?.status)) break
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  assert.equal(automaticJob?.status, 'ready', automaticJob?.message)
+  assert.equal(automaticJob.snapshot.body, answeredBody)
+  assert.equal((await (await request('/api/state')).json()).items.find(i => i.id === 'answered').priorityScore, undefined)
+  await stop(); env.FUNBAN_TRENDWATCH_AUTO = '0'; await start()
+  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: null })
   // Runtime switch disables new launches without deleting the saved analysis.
   await stop(); env.FUNBAN_TRENDWATCH_ENABLED = '0'; await start()
   assert.equal((await (await request(endpoint)).json()).available, false)
+  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: null })
   assert.equal((await request(endpoint, { ...input, requestId: crypto.randomUUID() })).status, 503)
   assert.equal((await (await request('/api/state')).json()).items[0].priorityScore, 8)
 })

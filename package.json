@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "test:e2e": "npm run build && playwright test",
     "test:mcp": "node --test tests/mcp.test.mjs",
-    "test:trendwatch": "node --test tests/trendwatch.test.mjs tests/codex.test.mjs tests/quick.test.mjs tests/clarifier.test.mjs tests/openrouter.test.mjs tests/trendwatch-config.test.mjs tests/openrouter-server.test.mjs",
+    "test:trendwatch": "node --test tests/trendwatch.test.mjs tests/codex.test.mjs tests/quick.test.mjs tests/clarifier.test.mjs tests/openrouter.test.mjs tests/trendwatch-config.test.mjs tests/openrouter-server.test.mjs tests/openrouter-clarifier.test.mjs",
     "dev:local": "npm run build && node scripts/local-preview.mjs",
     "preview:checks": "npm run build && node tests/preview-server.mjs",
     "check:openrouter": "node --env-file-if-exists=.env.openrouter.local scripts/check-openrouter.mjs",

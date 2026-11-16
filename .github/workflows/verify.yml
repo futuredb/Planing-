@@ -40,7 +40,7 @@ jobs:
           --mount type=bind,src="${{ github.workspace }}/tests",dst=/app/tests,readonly
           --env FUNBAN_TEST_BIND_HOST=0.0.0.0
           funban:${{ github.sha }}
-          node --test tests/trendwatch-config.test.mjs tests/openrouter-server.test.mjs
+          node --test tests/trendwatch-config.test.mjs tests/openrouter-server.test.mjs tests/openrouter-clarifier.test.mjs
       - name: Smoke-test production image
         run: |
           container_id=$(docker run --detach funban:${{ github.sha }})

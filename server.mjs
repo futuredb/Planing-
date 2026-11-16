@@ -18,6 +18,7 @@ import { decodeImageDataUrl, findAttachment, stateForClient } from './state-tran
 import { portalActor, portalRequired, portalLoginUrl, withActor } from './portal-auth.mjs'
 import { createTrendwatchService } from './trendwatch-service.mjs'
 import { createInboxClarifier } from './inbox-clarifier.mjs'
+import { launchOpenRouterClarifier } from './trendwatch-openrouter.mjs'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const dist = path.join(root, 'dist')
@@ -43,7 +44,9 @@ const repository = createStateRepository(stateFile, {
     }
   },
 })
-const inboxClarifier = createInboxClarifier()
+const inboxClarifier = process.env.FUNBAN_TRENDWATCH_MODE === 'openrouter'
+  ? { launch: launchOpenRouterClarifier, close() {} }
+  : createInboxClarifier()
 const trendwatch = createTrendwatchService({
   draftLauncher: inboxClarifier.launch, closeDraft: inboxClarifier.close,
   repository, directory: `${stateFile}.trendwatch`,

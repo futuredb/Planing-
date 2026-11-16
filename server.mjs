@@ -1,4 +1,4 @@
-import { openRouterConfigurationMessage } from './trendwatch-openrouter.mjs'
+import { trendwatchEnabled } from './trendwatch-config.mjs'
 import { committedActions } from './activity.mjs'
 import {httpMiddleware,emit} from './futuredb-telemetry.mjs';
 /**
@@ -52,8 +52,7 @@ const trendwatch = createTrendwatchService({
   reviewIntervalMs: process.env.FUNBAN_TRENDWATCH_AUTO === '1' ? 60000 : 0,
   webSearch: process.env.FUNBAN_TRENDWATCH_WEB === '1',
   conceptReview: process.env.FUNBAN_TRENDWATCH_CONCEPTS === '1',
-  enabled: process.env.FUNBAN_TRENDWATCH_ENABLED === '1' && ['127.0.0.1', '::1', 'localhost'].includes(host) &&
-    ((['assisted','codex'].includes(process.env.FUNBAN_TRENDWATCH_MODE) || process.env.FUNBAN_TRENDWATCH_MODE==='openrouter'&&!openRouterConfigurationMessage()) || (!process.env.FUNBAN_TRENDWATCH_MODE||process.env.FUNBAN_TRENDWATCH_MODE==='runtime') && Boolean(process.env.FUNBAN_TRENDWATCH_ROOT) && Number(process.versions.node.split('.')[0]) >= 24),
+  enabled: trendwatchEnabled(),
   root: process.env.FUNBAN_TRENDWATCH_ROOT,
   envFile: process.env.FUNBAN_TRENDWATCH_ENV_FILE,
 })

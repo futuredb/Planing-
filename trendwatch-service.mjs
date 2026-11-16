@@ -125,13 +125,13 @@ export function createTrendwatchService({ repository, directory, enabled=false, 
     child.on('close',()=>{clearTimeout(deadline);children.delete(job.id);void exclusive(async()=>{if(activeStatuses.has(job.status)){job.status='failed';job.message='Процесс исследования завершился без рекомендации. Задача сохранена.';save(job)}await pump()}).catch(()=>{})})
   }
   async function startJob(itemId,raw,actor,auto=false,batch=null,cycleDueAt=null){
-      if(!available())throw fail(503,'Локальный Trendwancher не подключён')
+      if(!available())throw fail(503,'ИИ-анализ не подключён')
       if(auto&&cycleDueAt===null&&latest(itemId))return publicJob(latest(itemId),await repository.read())
       const input=startSchema.parse(raw)
       const state=batch?.state??await repository.read(), item=state?.items.find(item=>item.id===itemId)
       if(!item)throw fail(404,'Сначала сохраните задачу')
       if(item.lane!=='inbox'&&item.lane!=='backlog')throw fail(409,'Запуск доступен во входящих и бэклоге')
-      if(item.lane==='backlog'&&!quickMode(mode))throw fail(409,'Для оценки бэклога включите режим Codex или OpenRouter на локальном сервере.')
+      if(item.lane==='backlog'&&!quickMode(mode))throw fail(409,'Для оценки бэклога включите режим Codex или OpenRouter.')
       if(item.title!==input.title||item.body!==input.body)throw fail(409,'Описание изменилось или ещё не сохранилось. Дождитесь сохранения и повторите запуск.')
       if(item.title.trim().length<3||(item.lane!=='backlog'&&item.body.trim().length<20))throw fail(422,'Добавьте название и описание задачи: что хотим проверить или улучшить.')
       draft?.stop() // Saving/assessing a real task takes precedence over an optional draft question.
@@ -295,7 +295,7 @@ export function createTrendwatchService({ repository, directory, enabled=false, 
     get: itemId=>exclusive(async()=>{
       const state=await repository.read()
       if(!state?.items.some(item=>item.id===itemId))throw fail(404,'Задача не найдена')
-      return {available:available(),mode,automatic:automatic&&quickMode(mode)&&available(),review:state.items.find(i=>i.id===itemId)?reviewState(state.items.find(i=>i.id===itemId)):null,configurationMessage:storageError?'Не удалось прочитать архив исследований. Доступна ручная оценка.':available()?null:'Локальный разбор не подключён. Доступна ручная оценка.',job:publicJob(latest(itemId),state)}
+      return {available:available(),mode,automatic:automatic&&quickMode(mode)&&available(),review:state.items.find(i=>i.id===itemId)?reviewState(state.items.find(i=>i.id===itemId)):null,configurationMessage:storageError?'Не удалось прочитать архив исследований. Доступна ручная оценка.':available()?null:'ИИ-анализ не подключён. Доступна ручная оценка.',job:publicJob(latest(itemId),state)}
     }),
     enqueueCreated: async(previous,next,actor)=>{
       if(!previous||!automatic||!quickMode(mode)||!available())return

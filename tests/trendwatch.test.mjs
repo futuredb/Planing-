@@ -512,7 +512,7 @@ test('backlog explains incompatible research mode without creating a job',async 
  for(const mode of ['assisted','runtime']){
   const x=await setup(t,{mode})
   await x.repository.mutate({action:'seed'},state=>{state.items[0].lane='backlog';return{state,result:{}}})
-  await assert.rejects(x.start(),{statusCode:409,message:'Для оценки бэклога включите режим Codex или OpenRouter на локальном сервере.'})
+  await assert.rejects(x.start(),{statusCode:409,message:'Для оценки бэклога включите режим Codex или OpenRouter.'})
   assert.equal(x.children.length,0)
   assert.equal((await x.service.get('task')).job,null)
  }

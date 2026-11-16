@@ -29,10 +29,18 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run test:mcp
+      - run: npm run test:trendwatch
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: docker build -t funban:${{ github.sha }} .
+      - name: Test Docker OpenRouter mode without external network
+        run: >-
+          docker run --rm --network none
+          --mount type=bind,src="${{ github.workspace }}/tests",dst=/app/tests,readonly
+          --env FUNBAN_TEST_BIND_HOST=0.0.0.0
+          funban:${{ github.sha }}
+          node --test tests/trendwatch-config.test.mjs tests/openrouter-server.test.mjs
       - name: Smoke-test production image
         run: |
           container_id=$(docker run --detach funban:${{ github.sha }})

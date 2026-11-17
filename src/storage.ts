@@ -1,3 +1,4 @@
+import { criteriaScore } from '../priority-score.mjs'
 import { DEFAULT_AVATARS } from './member'
 import type { AppState, Criterion, Item, Lane, Member } from './types'
 import { createEmpty, DEFAULT_CRITERIA, isLegacyCriteria, TEAM_MEMBERS } from './seed'
@@ -207,24 +208,8 @@ function migrate(state: AppState): AppState {
 }
 
 export function itemScore(item: Item, criteria: Criterion[]): number | null {
-  if (!criteria.length) return null
-  let plus = 0
-  let plusCount = 0
-  let penalty = 1
-  for (const c of criteria) {
-    const raw = item.scores[c.id]
-    if (raw == null) continue
-    const max = c.max || 5
-    const n = Math.min(max, Math.max(0, raw)) / max
-    if (c.invert) {
-      penalty *= 1 - n
-    } else {
-      plus += n
-      plusCount += 1
-    }
-  }
-  if (!plusCount) return null
-  return Math.round((plus / plusCount) * penalty * 100) / 10
+  if (Number.isFinite(item.priorityScore) && item.priorityScore! >= 0 && item.priorityScore! <= 10) return item.priorityScore!
+  return criteriaScore(item.scores, criteria)
 }
 
 export function isInlineImage(mime: string) {

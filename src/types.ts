@@ -56,7 +56,21 @@ export type Item = {
   assigneeId: string | null
   authorId: string | null
   scores: Record<string, number>
+  priorityScore?: number
   matrixBucket?: MatrixBucket | null
+  priorityReview?: { reviewedAt: number; returnedAt?: number; reason?: 'rejected' | 'overdue'; previousBucket?: MatrixBucket | null }
+  trendwatchDecision?: {
+    jobId: string
+    score?: number
+    preliminary?: boolean
+    reviewFingerprint?: string
+    confirmedAt: number
+    confirmedBy: string
+    confirmedByName: string
+    scores: Record<string, number>
+    matrixBucket: MatrixBucket | null
+    comment: string
+  }
   attachments: Attachment[]
   stickers: PlacedSticker[]
   createdVia?: 'agent'

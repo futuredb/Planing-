@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { startMockPortal } from './mock-portal.mjs'
 
 const directory = await mkdtemp(path.join(os.tmpdir(), 'funban-e2e-'))
@@ -14,11 +15,17 @@ const target = `http://127.0.0.1:${serverPort}`
 const controls = { failWrites: false, rejectWrites: false, freezePoll: false, delayWrite: 0, delayMove: 0, delayNextMove: 0 }
 const events = []
 const portal = await startMockPortal()
+const fixtureResearch = process.env.FUNBAN_E2E_TRENDWATCH === '1'
+const fixtureRoot = fileURLToPath(new URL('./fixtures/trendwatch/', import.meta.url))
 let portalSession = 'lily'
+let researchMode = 'runtime'
+let conceptResearch = false
+let webResearch = false
+let automaticResearch = false
 let child
 async function start() {
   child = spawn(process.execPath, ['server.mjs'], {
-    env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(serverPort), FUNBAN_DATA: dataFile, FUNBAN_PUBLIC_URL: `http://127.0.0.1:${port}/`, FUNBAN_PORTAL_IDENTITY_URL: portal.url, FUNBAN_MCP_TOKEN: process.env.FUNBAN_TEST_MCP_TOKEN || '', DASHBOARD_INGEST_URL: '', DASHBOARD_INGEST_TOKEN: '' },
+    env: { ...process.env, FUNBAN_TRENDWATCH_MODE: researchMode, FUNBAN_TRENDWATCH_CONCEPTS: conceptResearch ? '1' : '0', FUNBAN_TRENDWATCH_WEB: webResearch ? '1' : '0', FUNBAN_TRENDWATCH_AUTO: automaticResearch ? '1' : '0', NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(serverPort), FUNBAN_DATA: dataFile, FUNBAN_PUBLIC_URL: `http://127.0.0.1:${port}/`, FUNBAN_PORTAL_IDENTITY_URL: portal.url, FUNBAN_MCP_TOKEN: process.env.FUNBAN_TEST_MCP_TOKEN || '', DASHBOARD_INGEST_URL: '', DASHBOARD_INGEST_TOKEN: '', FUNBAN_TRENDWATCH_ENABLED: fixtureResearch || process.env.FUNBAN_PREVIEW_TRENDWATCH === '1' ? '1' : '0', ...(fixtureResearch ? { FUNBAN_CLARIFY_PYTHON: fileURLToPath(new URL('./fixtures/clarify-worker.mjs',import.meta.url)), FUNBAN_CLARIFY_MODEL: 'synthetic-test-only', FUNBAN_CODEX_BIN: fileURLToPath(new URL('./fixtures/codex-cli.mjs', import.meta.url)), FUNBAN_TRENDWATCH_ROOT: fixtureRoot, FUNBAN_TRENDWATCH_ENV_FILE: path.join(fixtureRoot, 'config.env') } : {}) },
     stdio: 'inherit',
   })
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -50,6 +57,12 @@ const proxy = http.createServer(async (req, res) => {
     const chunks = []
     for await (const chunk of req) chunks.push(chunk)
     const body = Buffer.concat(chunks)
+    if (req.url === '/__test/research-mode' && req.method === 'POST') {
+      const input = JSON.parse(body)
+      if (!['runtime','assisted','codex'].includes(input.mode)) throw new Error('Invalid research mode')
+      await stop(); researchMode = input.mode; automaticResearch = input.automatic === true; webResearch = input.web === true; conceptResearch = input.concepts === true; await start()
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); return
+    }
     if (req.url === '/__test/restart' && req.method === 'POST') {
       await stop(); await start()
       res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); return
@@ -85,9 +98,10 @@ const proxy = http.createServer(async (req, res) => {
       return
     }
     if (req.url === '/__test/reset' && req.method === 'POST') {
-      portalSession = 'lily'; portal.controls.unavailable = false
+      portalSession = 'lily'; portal.controls.unavailable = false; researchMode = 'runtime'; automaticResearch = false; webResearch = false; conceptResearch = false
       await stop()
       await Promise.all([`${dataFile}.mcp.json`, `${dataFile}.audit.jsonl`, `${dataFile}.before-task-numbers.json`].map((file) => rm(file, { force: true })))
+      await rm(`${dataFile}.trendwatch`, { recursive: true, force: true })
       await writeFile(dataFile, body)
       await start()
       Object.assign(controls, { failWrites: false, rejectWrites: false, freezePoll: false, delayWrite: 0, delayMove: 0, delayNextMove: 0 })

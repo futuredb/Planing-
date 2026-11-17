@@ -1,6 +1,7 @@
 node_modules
 dist
 data
+output
 .git
 .github
 private
@@ -8,3 +9,8 @@ private
 .DS_Store
 .vercel
 **/*.tmp
+
+# Server credentials
+.env
+.env.*
+!.env.example

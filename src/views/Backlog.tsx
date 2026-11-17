@@ -1,3 +1,6 @@
+import { backlogBucket } from '../../priority-score.mjs'
+import { useBacklogReview } from '../useBacklogReview'
+import { TrendwatchReview } from './TrendwatchReview'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { AgentBadge } from '../AgentBadge'
 import { AssignedFace } from '../AssignedFace'
@@ -99,6 +102,7 @@ function ScoreCell({
 export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
   const {
     state,
+    syncStatus,
     pullToSprint,
     addCriterion,
     updateCriterion,
@@ -109,18 +113,56 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
     toggleReaction,
     updateItem,
   } = useStore()
+  const moreMenu=useRef<HTMLDetailsElement>(null)
+  useEffect(()=>{
+    const dismiss=(event:PointerEvent)=>{
+      if(moreMenu.current?.open&&!moreMenu.current.contains(event.target as Node))moreMenu.current.open=false
+    }
+    const escape=(event:KeyboardEvent)=>{
+      if(event.key==='Escape'&&moreMenu.current?.open){moreMenu.current.open=false;moreMenu.current.querySelector('summary')?.focus()}
+    }
+    document.addEventListener('pointerdown',dismiss)
+    document.addEventListener('keydown',escape)
+    return()=>{document.removeEventListener('pointerdown',dismiss);document.removeEventListener('keydown',escape)}
+  },[])
+  const review=useBacklogReview(state.updatedAt)
+  const [now,setNow]=useState(Date.now)
+  useEffect(()=>{
+    const refresh=()=>setNow(Date.now())
+    const timer=window.setInterval(refresh,60000)
+    document.addEventListener('visibilitychange',refresh)
+    return()=>{window.clearInterval(timer);document.removeEventListener('visibilitychange',refresh)}
+  },[])
+  const [sort,setSort]=useState<'saved'|'ai'>('saved')
+  const proposed=(id:string)=>{const j=review.data?.jobs.find(j=>j.itemId===id);return j?.status==='ready'&&!j.stale&&!j.reviewDue?j.score:null}
+  const aiReview=(item:Item)=>{const j=review.data?.jobs.find(j=>j.itemId===item.id);return <TrendwatchReview item={item} onOpen={onOpen} preview refreshKey={j?`${j.id}:${j.status}:${j.stale}`:''}/>}
+  const [matrixNotice,setMatrixNotice]=useState('')
+  const needsReview=(item:Item)=>Boolean(review.data?.reviews?.find(r=>r.itemId===item.id)?.needsDecision)
+  const reviewLabel=(item:Item)=>{
+    const status=review.data?.reviews?.find(r=>r.itemId===item.id)
+    if(!status)return null
+    const returned=status.returnedAt!=null&&status.returnedAt>=status.dueAt
+    const deadline=status.needsDecision?status.returnAt:status.dueAt
+    const days=Math.max(0,Math.min(status.needsDecision?14:30,Math.ceil((deadline-now)/86400000)))
+    const date=new Date(deadline).toLocaleString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})
+    const description=returned?'Задача перенесена в «Не разобрано»: срок пересмотра и 14 дней ожидания истекли.':status.needsDecision
+      ?`Нужен пересмотр. До переноса в «Не разобрано» без решения лида: ${days} дн. (${date}).`
+      :`До пересмотра оценки: ${days} дн. (${date}).`
+    return <span className={`priority-review-countdown${status.needsDecision?' priority-review-alert':''}`}
+      title={description} aria-label={description} tabIndex={0}>{returned?0:days} дн.</span>
+  }
   const [settings, setSettings] = useState(false)
   const [tab, setTab] = useState<BacklogTab>('matrix')
   const [draftScores, setDraftScores] = useState<Record<string, number | null>>({})
   const rows = state.items
     .filter((item) => item.lane === 'backlog' && !item.parentId)
     .slice()
-    .sort((a, b) => (scoreOf(b) ?? -1) - (scoreOf(a) ?? -1))
-  const matrixRows = rows.filter((item) => isMatrixBucket(item.matrixBucket))
-  const unassignedMatrixRows = rows.filter((item) => !isMatrixBucket(item.matrixBucket))
+    .sort((a,b)=>sort==='ai'?(proposed(b.id)??-1)-(proposed(a.id)??-1):(scoreOf(b)??-1)-(scoreOf(a)??-1))
+  const matrixRows = rows.filter((item) => isMatrixBucket(backlogBucket(item,state.criteria) as Item['matrixBucket']))
+  const unassignedMatrixRows = rows.filter((item) => !isMatrixBucket(backlogBucket(item,state.criteria) as Item['matrixBucket']))
   const matrix = MATRIX_BUCKETS.map((bucket) => ({
     ...bucket,
-    items: matrixRows.filter((item) => item.matrixBucket === bucket.id),
+    items: matrixRows.filter((item) => backlogBucket(item,state.criteria) === bucket.id),
   }))
 
   function draftKey(itemId: string, criterionId: string) {
@@ -171,10 +213,13 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
     event.dataTransfer.effectAllowed = 'move'
   }
 
-  function onMatrixDrop(bucket: MatrixBucket, event: DragEvent<HTMLElement>) {
+  function onMatrixDrop(bucket: MatrixBucket | null, event: DragEvent<HTMLElement>) {
     const itemId = event.dataTransfer.getData(MATRIX_ITEM_MIME)
     if (!itemId) return
     event.preventDefault()
+    const item=state.items.find(i=>i.id===itemId)
+    if(bucket&&item&&(scoreOf(item)??0)<=0){setMatrixNotice('Сначала задайте и подтвердите положительную оценку. Пока задача остаётся в «Не разобрано».');return}
+    setMatrixNotice('')
     updateItem(itemId, { matrixBucket: bucket })
   }
 
@@ -189,11 +234,12 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
 
   return (
     <section className="page">
+      {matrixNotice?<p className="research-notice" role="status">{matrixNotice}</p>:null}
       <div className="page-head page-head-actions">
         <div>
           <span className="eyebrow">Приоритеты</span>
           <h1>Бэклог</h1>
-          <p>Задачи отсортированы по итоговой оценке. Нажмите на число, чтобы изменить его.</p>
+          <p>{sort==='ai'?'Порядок по предложению ИИ. Сохранённые оценки изменятся только после подтверждения.':'Задачи отсортированы по итоговой оценке. Нажмите на число, чтобы изменить его.'}</p>
         </div>
         <button type="button" className="secondary-button" onClick={() => setSettings(true)}>
           <Icon name="settings" />
@@ -209,6 +255,20 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
           Матрица
         </button>
       </div>
+
+      <div className="backlog-ai-toolbar">
+        <label>Сортировка <select aria-label="Сортировка бэклога" value={sort} onChange={e=>setSort(e.target.value as 'saved'|'ai')}><option value="saved">По сохранённой оценке</option><option value="ai">По оценке ИИ</option></select></label>
+        {review.data?.batch?.active?<button type="button" className="text-button" disabled={review.busy} onClick={()=>void review.run(true)}>Остановить</button>:null}
+        {review.data?.batch?<span role="status">Обработано {review.data.batch.completed} из {review.data.batch.total}{review.data.batch.failed?` · Ошибок ${review.data.batch.failed}`:''}{review.data.batch.cancelled?` · Отменено ${review.data.batch.cancelled}`:''}</span>:null}
+        <details ref={moreMenu} className="backlog-more">
+          <summary role="button" className="secondary-button compact-button" aria-label="Действия бэклога" title="Действия бэклога">⋯</summary>
+          <div className="backlog-more-popover">
+            <button type="button" disabled={review.busy||!review.data?.available||review.data.busy||!rows.length||syncStatus!=='saved'} onClick={()=>{if(moreMenu.current)moreMenu.current.open=false;void review.run().then(ok=>{if(ok)setSort('ai')})}}>Переоценить бэклог</button>
+          </div>
+        </details>
+      </div>
+      {review.error?<p className="research-error" role="alert">{review.error}</p>:null}
+      {sort==='ai'?<p className="backlog-ai-caption">{tab==='matrix'?'Сортировка внутри колонок. ':''}При равных баллах сохраняется порядок доски. Без актуальной оценки ИИ — в конце. Переносы между колонками остаются за вами.</p>:null}
 
       {rows.length ? (
         <>
@@ -247,7 +307,7 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                   return (
                     <tr
                       key={item.id}
-                      className="item-drop-zone"
+                      className={`item-drop-zone${needsReview(item)?' priority-review-needed':''}`}
                       onDragEnter={cardDrop.onDragEnter}
                       onDragOver={cardDrop.onDragOver}
                       onDragLeave={cardDrop.onDragLeave}
@@ -255,11 +315,13 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                     >
                       <td>
                         <div className="backlog-task">
-                          <div className="task-title-line">
+                          <div className="task-title-line backlog-review-title">
                             <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
                               {item.title}
                             </button>
                             <AgentBadge item={item} compact />
+                            {reviewLabel(item)}
+                            {sort==='ai'&&proposed(item.id)===null?<span className="backlog-ai-unrated">Без оценки ИИ</span>:null}
                           </div>
                           <div className="backlog-meta">
                             {owner ? (
@@ -280,14 +342,14 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                           key={criterion.id}
                           className={`score-cell ${Object.prototype.hasOwnProperty.call(draftScores, draftKey(item.id, criterion.id)) ? 'score-cell-draft' : ''}`}
                         >
-                          <ScoreCell
+                          {item.priorityScore !== undefined ? <span title="Используется единая оценка приоритета">{item.scores[criterion.id] ?? '—'}</span> : <ScoreCell
                             value={scoreDraft(item, criterion)}
                             criterion={criterion}
                             onChange={(next) => setScoreDraft(item, criterion, next)}
-                          />
+                          />}
                         </td>
                       ))}
-                      <td className="total-score">{scoreOf(item) ?? '—'}</td>
+                      <td className="total-score"><span className="backlog-score-pair">{aiReview(item)}<span>{scoreOf(item) ?? '—'}</span></span>{item.priorityScore !== undefined ? <span className="sr-only">Единая оценка, изменяется в карточке задачи</span> : null}</td>
                       <td className="row-action">
                         {hasScoreDraft(item) ? (
                           <button type="button" className="icon-button score-save-button" onClick={() => saveScoreDrafts(item)} aria-label="Сохранить оценки">
@@ -320,20 +382,22 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
               return (
                 <li
                   key={item.id}
-                  className="item-drop-zone"
+                  className={`item-drop-zone${needsReview(item)?' priority-review-needed':''}`}
                   onDragEnter={cardDrop.onDragEnter}
                   onDragOver={cardDrop.onDragOver}
                   onDragLeave={cardDrop.onDragLeave}
                   onDrop={cardDrop.onDrop}
                 >
                   <div className="mobile-task-head">
-                    <div className="task-title-line">
+                    <div className="task-title-line backlog-review-title">
                       <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
                         {item.title}
                       </button>
                       <AgentBadge item={item} compact />
+                            {reviewLabel(item)}
+                            {sort==='ai'&&proposed(item.id)===null?<span className="backlog-ai-unrated">Без оценки ИИ</span>:null}
                     </div>
-                    <span className="score-badge">{scoreOf(item) ?? '—'}</span>
+                    <span className="backlog-score-pair">{aiReview(item)}<span className="score-badge">{scoreOf(item) ?? '—'}</span></span>
                   </div>
                   <div className="mobile-task-foot">
                     {owner ? (
@@ -381,17 +445,19 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                         return (
                           <article
                             key={item.id}
-                            className="matrix-card"
+                            className={`matrix-card${needsReview(item)?' priority-review-needed':''}`}
                             draggable
                             onDragStart={(event) => startMatrixDrag(item, event)}
                           >
-                            <div className="task-title-line">
+                            <div className="task-title-line backlog-review-title">
                               <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
                                 {item.title}
                               </button>
                               <AgentBadge item={item} compact />
+                            {reviewLabel(item)}
+                            {sort==='ai'&&proposed(item.id)===null?<span className="backlog-ai-unrated">Без оценки ИИ</span>:null}
                             </div>
-                            <div className="backlog-meta matrix-card-footer">
+                            <div className="backlog-meta matrix-card-meta">
                               {owner ? (
                                 <span className="owner-chip">
                                   <AssignedFace itemId={item.id} member={owner} />
@@ -401,8 +467,10 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                                 <span className="unassigned">Без исполнителя</span>
                               )}
                               <AuthorMeta item={item} members={state.members} actors={state.actors} compact />
+                            </div>
+                            <div className="matrix-card-footer">
                               <ReactionBar item={item} compact />
-                              <strong className="matrix-score">{scoreOf(item) ?? '—'}</strong>
+                              <span className="backlog-score-pair">{aiReview(item)}<strong className="matrix-score">{scoreOf(item) ?? '—'}</strong></span>
                             </div>
                           </article>
                         )
@@ -414,9 +482,9 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                 ))}
               </div>
               {unassignedMatrixRows.length ? (
-                <section className="matrix-unassigned">
+                <section className="matrix-unassigned" onDragOver={event=>event.preventDefault()} onDrop={event=>onMatrixDrop(null,event)}>
                   <header className="matrix-unassigned-head">
-                    <h2>Нераспределённые</h2>
+                    <h2>Не разобрано</h2>
                     <span>{unassignedMatrixRows.length}</span>
                   </header>
                   <div className="matrix-items">
@@ -425,17 +493,19 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                       return (
                         <article
                           key={item.id}
-                          className="matrix-card"
+                          className={`matrix-card${needsReview(item)?' priority-review-needed':''}`}
                           draggable
                           onDragStart={(event) => startMatrixDrag(item, event)}
                         >
-                          <div className="task-title-line">
+                          <div className="task-title-line backlog-review-title">
                             <button type="button" className="backlog-title" onClick={() => onOpen(item.id)}>
                               {item.title}
                             </button>
                             <AgentBadge item={item} compact />
+                            {reviewLabel(item)}
+                            {sort==='ai'&&proposed(item.id)===null?<span className="backlog-ai-unrated">Без оценки ИИ</span>:null}
                           </div>
-                          <div className="backlog-meta matrix-card-footer">
+                          <div className="backlog-meta matrix-card-meta">
                             {owner ? (
                               <span className="owner-chip">
                                 <AssignedFace itemId={item.id} member={owner} />
@@ -445,8 +515,10 @@ export function Backlog({ onOpen }: { onOpen: (id: string) => void }) {
                               <span className="unassigned">Без исполнителя</span>
                             )}
                             <AuthorMeta item={item} members={state.members} actors={state.actors} compact />
+                          </div>
+                          <div className="matrix-card-footer">
                             <ReactionBar item={item} compact />
-                            <strong className="matrix-score">{scoreOf(item) ?? '—'}</strong>
+                            <span className="backlog-score-pair">{aiReview(item)}<strong className="matrix-score">{scoreOf(item) ?? '—'}</strong></span>
                           </div>
                         </article>
                       )

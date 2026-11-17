@@ -30,6 +30,7 @@ jobs:
       - run: npm run lint
       - run: npm run test:mcp
       - run: npm run test:trendwatch
+      - run: docker compose -f compose.yaml config --quiet
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e

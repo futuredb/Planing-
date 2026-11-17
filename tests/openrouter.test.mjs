@@ -3,8 +3,11 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createServer } from 'node:http'
+import { once } from 'node:events'
 import { launchOpenRouter, openRouterConfig } from '../trendwatch-openrouter.mjs'
 import { quickHash } from '../trendwatch-quick.mjs'
+import { fetchOpenRouter } from '../openrouter-fetch.mjs'
 const env={OPENROUTER_API_KEY:'synthetic-secret',FUNBAN_OPENROUTER_MODEL:'test/model'}
 const job={id:'11111111-1111-4111-8111-111111111111',format:'quick-v1',webSearch:true,createdAt:Date.now(),priorityPolicy:'concept-mvp-v1',evidencePolicy:'adaptive-signals-v4',snapshot:{title:'Автоматизировать сбор материалов',body:'Экономия 2 часа в неделю.',criteria:[]},boardContext:{total:0,items:[]},comparisonContext:{items:[]}}
 job.packetHash=quickHash(job,[])
@@ -58,6 +61,30 @@ test('HTTP errors are sanitized and never retried',async t=>{
   const x=fixture(t,{fetcher:async()=>new Response('private provider detail synthetic-secret',{status})})
   assert.deepEqual(await x.result,{type:'error',code});assert.equal(x.requests.length,1)
  }
+})
+test('configured proxy receives OpenRouter CONNECT; rejection does not fall back to direct HTTPS', async t => {
+  const proxy = createServer()
+  t.after(() => new Promise(resolve => proxy.close(resolve)))
+  const requests = []
+  proxy.on('connect', (request, socket) => {
+    requests.push({ authority: request.url, authorization: request.headers.authorization })
+    socket.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
+  })
+  proxy.listen(0, '127.0.0.1')
+  await once(proxy, 'listening')
+  const config = { ...env, OPENROUTER_PROXY_URL: `http://127.0.0.1:${proxy.address().port}` }
+  const originalFetch = globalThis.fetch
+  let directRequests = 0
+  globalThis.fetch = () => { directRequests++; throw new Error('Direct network is disabled in this test') }
+  t.after(() => { globalThis.fetch = originalFetch })
+
+  await assert.rejects(fetchOpenRouter('https://openrouter.ai/api/v1/key', {
+    headers: { Authorization: 'Bearer synthetic-secret' }, signal: AbortSignal.timeout(2000),
+  }, config))
+  assert.throws(() => fetchOpenRouter('https://example.com/', {}, config), /Invalid OpenRouter destination/)
+  assert.throws(() => openRouterConfig({ ...config, OPENROUTER_PROXY_URL: 'file:///tmp/proxy' }), /OPENROUTER_CONFIG/)
+  assert.deepEqual(requests, [{ authority: 'openrouter.ai:443', authorization: undefined }])
+  assert.equal(directRequests, 0)
 })
 test('malformed, oversized, incomplete and mismatched answers fail closed',async t=>{
  for(const answer of [{...response(),status:'incomplete'},response({...review,jobId:'22222222-2222-4222-8222-222222222222'}),{...response(),extra:'x'.repeat(512001)},response({...review,recommendation:{...review.recommendation,score:99}})]){

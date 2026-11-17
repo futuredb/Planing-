@@ -1,0 +1,65 @@
+services:
+  funban:
+    build: .
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      FUNBAN_DATA: /data/state.json
+      FUNBAN_MCP_TOKEN: ${FUNBAN_MCP_TOKEN:-}
+      FUNBAN_PUBLIC_URL: ${FUNBAN_PUBLIC_URL:-https://funban.future-db.ru/}
+      FUNBAN_ALLOWED_HOSTS: ${FUNBAN_ALLOWED_HOSTS:-}
+      FUNBAN_PORTAL_IDENTITY_URL: ${FUNBAN_PORTAL_IDENTITY_URL:-http://team-portal:3000/api/access/identity}
+      FUNBAN_PORTAL_LOGIN_URL: ${FUNBAN_PORTAL_LOGIN_URL:-https://future-db.ru/login?next=%2Fopen%2Ffunban}
+      FUNBAN_TIME_ZONE: ${FUNBAN_TIME_ZONE:-Europe/Moscow}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_PROXY_URL: ${OPENROUTER_PROXY_URL:-http://weekly-news-ai-egress:8888}
+      FUNBAN_OPENROUTER_MODEL: ${FUNBAN_OPENROUTER_MODEL:-}
+      FUNBAN_OPENROUTER_CLARIFY_MODEL: ${FUNBAN_OPENROUTER_CLARIFY_MODEL:-}
+      FUNBAN_OPENROUTER_MAX_KEY_LIMIT_USD: ${FUNBAN_OPENROUTER_MAX_KEY_LIMIT_USD:-5}
+      FUNBAN_OPENROUTER_MAX_TOKENS: ${FUNBAN_OPENROUTER_MAX_TOKENS:-4096}
+      FUNBAN_OPENROUTER_TIMEOUT_MS: ${FUNBAN_OPENROUTER_TIMEOUT_MS:-180000}
+      FUNBAN_TRENDWATCH_MODE: openrouter
+      FUNBAN_OPENROUTER_SERVER: "1"
+      FUNBAN_TRENDWATCH_ENABLED: ${FUNBAN_TRENDWATCH_ENABLED:-0}
+      FUNBAN_TRENDWATCH_AUTO: ${FUNBAN_TRENDWATCH_AUTO:-0}
+      FUNBAN_TRENDWATCH_WEB: ${FUNBAN_TRENDWATCH_WEB:-0}
+      FUNBAN_TRENDWATCH_CONCEPTS: ${FUNBAN_TRENDWATCH_CONCEPTS:-1}
+      DASHBOARD_INGEST_URL: ${DASHBOARD_INGEST_URL:-}
+      DASHBOARD_RESOURCE_ID: ${DASHBOARD_RESOURCE_ID:-}
+      DASHBOARD_INGEST_TOKEN: ${DASHBOARD_INGEST_TOKEN:-}
+      DASHBOARD_QUEUE_DIR: ${DASHBOARD_QUEUE_DIR:-}
+      DASHBOARD_KEY_ALIAS: ${DASHBOARD_KEY_ALIAS:-}
+    volumes:
+      - data:/data
+    networks:
+      - coolify
+      - ai-egress
+    labels:
+      coolify.managed: "true"
+      coolify.applicationUuid: pnszftirox5zl07husaegzgd
+      coolify.resourceName: funban
+      coolify.serviceName: funban
+      coolify.type: application
+      coolify.pullRequestId: "0"
+      traefik.enable: "true"
+      traefik.docker.network: coolify
+      # The existing authenticated router, health route and MCP route use this service.
+      traefik.http.services.https-0-pnszftirox5zl07husaegzgd.loadbalancer.server.port: "3000"
+
+volumes:
+  data:
+    external: true
+    name: pnszftirox5zl07husaegzgd-data
+
+networks:
+  coolify:
+    external: true
+  ai-egress:
+    external: true
+    name: urgaqzc5und8ly1epxub8kzo

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { z } from 'zod'
+import { fetchOpenRouter, openRouterProxyUrl } from './openrouter-fetch.mjs'
 import { quickPacket, quickSchema, validateQuickReview, publicWebUrl, webLimits, draftInputSchema, draftReviewSchema } from './trendwatch-quick.mjs'
 
 const endpoint='https://openrouter.ai/api/v1'
@@ -14,6 +15,7 @@ export function openRouterConfig(env=process.env){
   const maxKeyLimit=Number(env.FUNBAN_OPENROUTER_MAX_KEY_LIMIT_USD||5)
   if(!apiKey||!model||!/^[-\w.]+\/[-\w.:]+$/.test(model)||model.endsWith(':online')||model==='openrouter/auto')throw failure('OPENROUTER_CONFIG')
   if(!Number.isInteger(maxTokens)||maxTokens<512||maxTokens>8192||!Number.isInteger(timeoutMs)||timeoutMs<1000||timeoutMs>240000||!Number.isFinite(maxKeyLimit)||maxKeyLimit<=0||maxKeyLimit>20)throw failure('OPENROUTER_CONFIG')
+  try { openRouterProxyUrl(env) } catch { throw failure('OPENROUTER_CONFIG') }
   return {apiKey,model,maxTokens,timeoutMs,maxKeyLimit}
 }
 export function openRouterConfigurationMessage(env=process.env){
@@ -51,7 +53,7 @@ async function checkBudget(request,config){
 }
 
 /** Optional draft question: no search, board context, retries or local fallback. */
-export function launchOpenRouterClarifier(directory,{env=process.env,fetchImpl=fetch,timeoutMs=2300}={}){
+export function launchOpenRouterClarifier(directory,{env=process.env,fetchImpl=(input, init)=>fetchOpenRouter(input,init,env),timeoutMs=2300}={}){
   const child=new EventEmitter(),controller=new AbortController()
   let finished=false,timer
   child.exitCode=null
@@ -93,7 +95,7 @@ export function launchOpenRouterClarifier(directory,{env=process.env,fetchImpl=f
   })
   return child
 }
-export function launchOpenRouter(directory,{env=process.env,fetchImpl=fetch}={}){
+export function launchOpenRouter(directory,{env=process.env,fetchImpl=(input, init)=>fetchOpenRouter(input,init,env)}={}){
   const child=new EventEmitter(),controller=new AbortController()
   child.exitCode=null
   let finished=false,timedOut=false,timer

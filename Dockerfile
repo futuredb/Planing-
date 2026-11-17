@@ -13,7 +13,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY activity.mjs futuredb-telemetry.mjs server.mjs portal-auth.mjs funban-mcp.mjs state-repository.mjs state-transport.mjs state-operations.mjs task-numbers.mjs ./
 COPY priority-score.mjs inbox-clarifier.mjs trendwatch-contract.mjs trendwatch-service.mjs trendwatch-worker.mjs trendwatch-lite.mjs trendwatch-codex.mjs trendwatch-openrouter.mjs trendwatch-concepts.mjs trendwatch-quick.mjs ./
-COPY trendwatch-config.mjs ./
+COPY trendwatch-config.mjs openrouter-fetch.mjs ./
 COPY scripts/check-openrouter.mjs ./scripts/check-openrouter.mjs
 RUN mkdir -p /data
 EXPOSE 3000

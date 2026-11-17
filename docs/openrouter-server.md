@@ -26,6 +26,7 @@
 | Переменная | Начальное значение | Назначение |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | Секрет, отдельно от Git | Обычный API-ключ для генерации, не Management key |
+| `OPENROUTER_PROXY_URL` | `http://weekly-news-ai-egress:8888` на prod01 | Приватный HTTP CONNECT-прокси только для OpenRouter |
 | `FUNBAN_OPENROUTER_MODEL` | Точный ID выбранной модели | Обязательное значение вида `provider/model`; совместимость проверяется живым запросом |
 | `FUNBAN_OPENROUTER_CLARIFY_MODEL` | Пусто или ID быстрой модели | Для вопроса при вводе; пустое значение использует основную модель |
 | `FUNBAN_OPENROUTER_MAX_KEY_LIMIT_USD` | `5` | Максимальный разрешённый лимит ключа; не устанавливает лимит в OpenRouter |
@@ -45,6 +46,20 @@
 Сохраните существующие `FUNBAN_PUBLIC_URL`, настройки Team Portal и постоянное хранилище. В Docker по умолчанию `PORT=3000`, `FUNBAN_DATA=/data/state.json`; весь `/data` должен находиться на постоянном томе. Архив рекомендаций хранится рядом в `state.json.trendwatch/`. Не запускайте два backend с одним хранилищем. `FUNBAN_LOCAL_PORT=4338` относится только к локальному preview и для production не нужен.
 
 Серверу нужен исходящий HTTPS к `https://openrouter.ai/api/v1` и доступ к действующему Team Portal. Веб-поиск выполняет OpenRouter; отдельный ключ Exa или Tavily этому адаптеру не нужен. Локальные Codex CLI, Python и MLX на сервер устанавливать не требуется.
+
+На prod01 `compose.yaml` подключает Funban к существующим сетям `coolify` и
+`urgaqzc5und8ly1epxub8kzo`. Compose использует прежний внешний том данных и имя
+сервиса Traefik, указанное в существующих маршрутах Funban. В Coolify используйте
+Docker Compose из Git и Raw Compose, без автоматической генерации маршрутов
+домена. Перед переходом проверьте текущие значения настроек ресурса и сделайте
+свежий бэкап. Сохраните настройки Dockerfile для отката. При переключении
+проверяйте, что одновременно запись в том выполняет только один контейнер Funban.
+Публичные маршруты продолжают использовать существующую конфигурацию Traefik.
+
+Прокси применяется только для запросов адаптера OpenRouter. Сбой прокси приводит
+к ошибке запроса без прямого повтора. Запросы Portal и MCP идут своим прежним
+маршрутом. Для изолированной проверки используйте отдельный том и отдельное имя
+сервиса Traefik либо запускайте без публикации сервиса в Traefik.
 
 Уточнение при вводе в режиме `openrouter` также работает через OpenRouter, когда включён `FUNBAN_TRENDWATCH_AUTO=1`. Отправляются только название (до 500 символов) и первые 800 символов контекста ещё не сохранённой задачи. Доска, комментарии и вложения в этот запрос не входят; поиск выключен. Вопрос необязателен, сохранение задачи не ждёт ответа.
 
@@ -75,9 +90,10 @@ JS
 ```bash
 node --input-type=module <<'JS'
 import { openRouterConfig } from './trendwatch-openrouter.mjs'
+import { fetchOpenRouter } from './openrouter-fetch.mjs'
 try {
   const { apiKey, maxKeyLimit } = openRouterConfig()
-  const response = await fetch('https://openrouter.ai/api/v1/key', {
+  const response = await fetchOpenRouter('https://openrouter.ai/api/v1/key', {
     headers: { Authorization: `Bearer ${apiKey}` },
     redirect: 'error', signal: AbortSignal.timeout(15000),
   })

@@ -135,7 +135,7 @@ export function launchOpenRouter(directory,{env=process.env,fetchImpl=(input, in
         max_output_tokens:config.maxTokens,provider:{require_parameters:true,data_collection:'deny'},
         text:{format:{type:'json_schema',name:'funban_priority',strict:true,schema:priorityResponseSchema(schema)}},
         tools:job.webSearch?[{type:'openrouter:web_search',parameters:{engine:'exa',mode:'fast',max_uses:webLimits.queries,max_results:3,max_total_results:9,max_characters:2000}}]:[],
-        ...(job.webSearch?{max_tool_calls:webLimits.queries,parallel_tool_calls:false}:{}),
+        ...(job.webSearch?{stop_server_tools_when:[{type:'step_count_is',step_count:webLimits.queries - 1}]}:{}),
       })
       if(data.error||data.status!=='completed'||!Array.isArray(data.output))throw failure('OPENROUTER_RESPONSE')
       const parts=data.output.filter(i=>i.type==='message'&&i.role==='assistant').flatMap(i=>i.content??[]).filter(p=>p.type==='output_text')

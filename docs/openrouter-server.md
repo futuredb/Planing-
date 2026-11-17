@@ -47,7 +47,7 @@
 
 Серверу нужен исходящий HTTPS к `https://openrouter.ai/api/v1` и доступ к действующему Team Portal. Веб-поиск выполняет OpenRouter; отдельный ключ Exa или Tavily этому адаптеру не нужен. Локальные Codex CLI, Python и MLX на сервер устанавливать не требуется.
 
-На prod01 `compose.yaml` подключает Funban к существующим сетям `coolify` и
+На prod01 `docker-compose.yaml` подключает Funban к существующим сетям `coolify` и
 `urgaqzc5und8ly1epxub8kzo`. Compose использует прежний внешний том данных и имя
 сервиса Traefik, указанное в существующих маршрутах Funban. В Coolify используйте
 Docker Compose из Git и Raw Compose, без автоматической генерации маршрутов

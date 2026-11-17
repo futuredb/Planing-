@@ -35,6 +35,7 @@ test('internal review: bounded request, no observed searches, credentials only i
  assert.equal(request.options.redirect,'error');assert.equal(request.body.store,false)
  assert.equal(request.body.max_output_tokens,4096);assert.equal(request.body.max_tool_calls,3)
  assert.equal(request.body.tools[0].parameters.engine,'exa');assert.equal(request.body.tools[0].parameters.max_uses,3)
+ assert.equal(request.body.text.format.schema.properties.recommendation.properties.regionalApplicability.properties.sourceUrls.items.format,undefined)
  assert.equal(JSON.stringify(request.body).includes(env.OPENROUTER_API_KEY),false)
  assert.equal(JSON.stringify(result).includes(env.OPENROUTER_API_KEY),false)
 })

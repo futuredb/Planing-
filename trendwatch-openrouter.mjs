@@ -52,6 +52,16 @@ async function checkBudget(request,config){
   if(!Number.isFinite(key?.limit)||key.limit<=0||key.limit>config.maxKeyLimit||!Number.isFinite(key.limit_remaining)||key.limit_remaining<=0)throw failure('OPENROUTER_BUDGET')
 }
 
+function priorityResponseSchema(schema) {
+  return z.toJSONSchema(schema, {
+    override({ jsonSchema }) {
+      // OpenAI's strict response schema rejects the URI format. The original
+      // Zod schema and provenance checks still validate the returned URLs.
+      if (jsonSchema.format === 'uri') delete jsonSchema.format
+    },
+  })
+}
+
 /** Optional draft question: no search, board context, retries or local fallback. */
 export function launchOpenRouterClarifier(directory,{env=process.env,fetchImpl=(input, init)=>fetchOpenRouter(input,init,env),timeoutMs=2300}={}){
   const child=new EventEmitter(),controller=new AbortController()
@@ -123,7 +133,7 @@ export function launchOpenRouter(directory,{env=process.env,fetchImpl=(input, in
       child.emit('message',{type:'stage',stage:'prioritizing'})
       const data=await request('/responses',{model:config.model,store:false,stream:false,instructions,input,
         max_output_tokens:config.maxTokens,provider:{require_parameters:true,data_collection:'deny'},
-        text:{format:{type:'json_schema',name:'funban_priority',strict:true,schema:z.toJSONSchema(schema)}},
+        text:{format:{type:'json_schema',name:'funban_priority',strict:true,schema:priorityResponseSchema(schema)}},
         tools:job.webSearch?[{type:'openrouter:web_search',parameters:{engine:'exa',mode:'fast',max_uses:webLimits.queries,max_results:3,max_total_results:9,max_characters:2000}}]:[],
         ...(job.webSearch?{max_tool_calls:webLimits.queries}:{}),
       })

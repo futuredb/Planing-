@@ -14,6 +14,7 @@ globalThis.fetch = async (url, options = {}) => {
       { type: 'output_text', text: JSON.stringify({ question: body.includes('шаблоны презентаций') ? null : 'Какие именно цифровые дизайны планируем продавать?' }) },
     ] }] })
   }
+  if (process.env.FUNBAN_TEST_OPENROUTER_FAILURE === 'incomplete') return Response.json({status:'incomplete',incomplete_details:{reason:'max_output_tokens'},private:'synthetic-secret',usage:{output_tokens:4096}})
   const marker = '## Шаблон ответа\n'
   const result = JSON.parse(input.slice(input.lastIndexOf(marker) + marker.length))
   Object.assign(result.recommendation, {

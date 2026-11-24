@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
-import { launchOpenRouter, openRouterConfig } from '../trendwatch-openrouter.mjs'
+import { launchOpenRouter, openRouterConfig, safeOpenRouterDiagnostics } from '../trendwatch-openrouter.mjs'
 import { quickHash } from '../trendwatch-quick.mjs'
 import { fetchOpenRouter } from '../openrouter-fetch.mjs'
 const env={OPENROUTER_API_KEY:'synthetic-secret',FUNBAN_OPENROUTER_MODEL:'test/model'}
@@ -61,7 +61,7 @@ test('missing configuration makes no requests; unlimited/exhausted keys make no 
 test('HTTP errors are sanitized and never retried',async t=>{
  for(const [status,code]of [[401,'OPENROUTER_AUTH'],[402,'OPENROUTER_CREDITS'],[429,'OPENROUTER_RATE_LIMIT'],[500,'OPENROUTER_UNAVAILABLE']]){
   const x=fixture(t,{fetcher:async()=>new Response('private provider detail synthetic-secret',{status})})
-  assert.deepEqual(await x.result,{type:'error',code});assert.equal(x.requests.length,1)
+  const r=await x.result;assert.equal(r.code,code);assert.equal(r.diagnostics.httpStatus,status);assert.equal(r.diagnostics.phase,'budget');assert.equal(JSON.stringify(r).includes('synthetic-secret'),false);assert.equal(x.requests.length,1)
  }
 })
 test('configured proxy receives OpenRouter CONNECT; rejection does not fall back to direct HTTPS', async t => {
@@ -89,8 +89,8 @@ test('configured proxy receives OpenRouter CONNECT; rejection does not fall back
   assert.equal(directRequests, 0)
 })
 test('malformed, oversized, incomplete and mismatched answers fail closed',async t=>{
- for(const answer of [{...response(),status:'incomplete'},response({...review,jobId:'22222222-2222-4222-8222-222222222222'}),{...response(),extra:'x'.repeat(512001)},response({...review,recommendation:{...review.recommendation,score:99}})]){
-  assert.equal((await fixture(t,{answer}).result).code,'OPENROUTER_RESPONSE')
+ for(const [answer,code] of [[{...response(),status:'incomplete'},'OPENROUTER_INCOMPLETE'],[response({...review,jobId:'22222222-2222-4222-8222-222222222222'}),'OPENROUTER_VALIDATION'],[{...response(),extra:'x'.repeat(512001)},'OPENROUTER_RESPONSE_SIZE'],[response({...review,recommendation:{...review.recommendation,score:99}}),'OPENROUTER_SCHEMA']]){
+  assert.equal((await fixture(t,{answer}).result).code,code)
  }
 })
 test('cancellation aborts HTTP and never emits a review',async t=>{
@@ -104,4 +104,53 @@ test('cancellation aborts HTTP and never emits a review',async t=>{
 test('timeout aborts and reports a safe error without retry',async t=>{
  const x=fixture(t,{config:{...env,FUNBAN_OPENROUTER_TIMEOUT_MS:'1000'},fetcher:async(_url,{signal})=>new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(new Error('private')),{once:true}))})
  assert.equal((await x.result).code,'OPENROUTER_TIMEOUT');assert.equal(x.requests.length,1)
+})
+
+// No real API calls: every failure is injected through fetchImpl.
+test('diagnostics distinguish transport failures and retain only safe metadata',async t=>{
+ const x=fixture(t,{fetcher:async()=>{throw new TypeError('private synthetic-secret proxy.internal',{cause:Object.assign(new Error('private'),{code:'ENOTFOUND'})})}})
+ const r=await x.result
+ assert.equal(r.code,'OPENROUTER_NETWORK')
+ assert.equal(r.diagnostics.phase,'budget')
+ assert.equal(r.diagnostics.networkCode,'ENOTFOUND')
+ assert.equal(typeof r.diagnostics.elapsedMs,'number')
+ assert.equal(JSON.stringify(r).includes('private'),false)
+ assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
+ assert.equal(x.requests.length,1)
+})
+test('incomplete generation, invalid JSON, schema and evidence have distinct diagnostics',async t=>{
+ const cases=[
+  [{...response(),status:'incomplete',incomplete_details:{reason:'max_output_tokens'}},'OPENROUTER_INCOMPLETE','response','max_output_tokens'],
+  [{...response(),output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'private synthetic-secret'}]}]},'OPENROUTER_JSON','parse'],
+  [response({...review,recommendation:{...review.recommendation,score:99}}),'OPENROUTER_SCHEMA','schema'],
+  [response({...review,jobId:'22222222-2222-4222-8222-222222222222'}),'OPENROUTER_VALIDATION','validation'],
+ ]
+ for(const [answer,code,phase,reason]of cases){
+  const r=await fixture(t,{answer}).result
+  assert.equal(r.code,code);assert.equal(r.diagnostics.phase,phase)
+  if(reason)assert.equal(r.diagnostics.incompleteReason,reason)
+  assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
+  if(phase==='schema')assert.deepEqual(r.diagnostics.schemaIssues,[{field:'recommendation.score',code:'too_big'}])
+  if(phase==='validation')assert.equal(r.diagnostics.validationCode,'PACKET_MISMATCH')
+ }
+})
+
+test('unknown provider data and diagnostics fields cannot leak into errors',async t=>{
+ assert.deepEqual(safeOpenRouterDiagnostics({schemaIssues:[{field:'private',code:'too_big',message:'secret'}]}),{schemaIssues:[{field:'other',code:'too_big'}]})
+ assert.deepEqual(safeOpenRouterDiagnostics({phase:'private',networkCode:'secret',validationCode:'secret',incompleteReason:'secret',responseStatus:'secret',elapsedMs:Infinity,httpStatus:999,outputTokens:-1,headers:{Authorization:'secret'},message:'secret',stack:'secret'}),{})
+ for(const [answer,code] of [[{status:'failed',error:{message:'private synthetic-secret'}},'OPENROUTER_PROVIDER'],[null,'OPENROUTER_RESPONSE']]){
+  const r=await fixture(t,{answer}).result
+  assert.equal(r.code,code);assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
+ }
+ const broken=await fixture(t,{fetcher:async()=>new Response('private synthetic-secret',{status:200})}).result
+ assert.equal(broken.code,'OPENROUTER_JSON');assert.equal(broken.diagnostics.phase,'budget')
+})
+test('generation transport failure is distinct from budget failure',async t=>{
+ const x=fixture(t,{fetcher:async url=>{
+  if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+  throw new TypeError('private',{cause:Object.assign(new Error('private'),{code:'UND_ERR_HEADERS_TIMEOUT'})})
+ }})
+ const r=await x.result
+ assert.equal(r.code,'OPENROUTER_NETWORK');assert.equal(r.diagnostics.phase,'generation')
+ assert.equal(r.diagnostics.networkCode,'UND_ERR_HEADERS_TIMEOUT');assert.equal(x.requests.length,2)
 })

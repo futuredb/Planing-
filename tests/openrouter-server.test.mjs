@@ -108,6 +108,27 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   assert.equal((await (await request('/api/state')).json()).items.find(i => i.id === 'answered').priorityScore, undefined)
   await stop(); env.FUNBAN_TRENDWATCH_AUTO = '0'; await start()
   assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: null })
+  // Error details survive HTTP serialization and restart; neither score is overwritten.
+  await stop(); env.FUNBAN_TEST_OPENROUTER_FAILURE = 'incomplete'; await start()
+  const beforeFailure = (await (await request('/api/state')).json()).items[0]
+  assert.equal((await request(endpoint, { ...input, requestId: crypto.randomUUID() })).status, 200)
+  let failed
+  for (let attempt = 0; attempt < 100; attempt++) {
+    failed = (await (await request(endpoint)).json()).job
+    if (failed?.status === 'failed') break
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  assert.equal(failed.status, 'failed')
+  assert.equal(failed.failure.code, 'OPENROUTER_INCOMPLETE')
+  assert.equal(failed.failure.incompleteReason, 'max_output_tokens')
+  assert.equal(failed.failure.phase, 'response')
+  assert.equal(JSON.stringify(failed).includes('synthetic-secret'), false)
+  assert.deepEqual((await (await request('/api/state')).json()).items[0], beforeFailure)
+  const archive = JSON.parse(await fs.readFile(path.join(dir, 'state.json.trendwatch', failed.id, 'job.json'), 'utf8'))
+  assert.equal(archive.errorDiagnostics.incompleteReason, 'max_output_tokens')
+  assert.equal(JSON.stringify(archive).includes('synthetic-secret'), false)
+  await stop(); await start()
+  assert.deepEqual((await (await request(endpoint)).json()).job.failure, failed.failure)
   // Runtime switch disables new launches without deleting the saved analysis.
   await stop(); env.FUNBAN_TRENDWATCH_ENABLED = '0'; await start()
   assert.equal((await (await request(endpoint)).json()).available, false)

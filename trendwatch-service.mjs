@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { startSchema, confirmationSchema, snapshot, fingerprint, validScore, validatedRecommendation, researchStopMessage } from './trendwatch-contract.mjs'
 import { compactMaterials, packetHash, reviewPacket, reviewImportSchema, validateSavedReview, reviewReport } from './trendwatch-lite.mjs'
-import { launchOpenRouter, openRouterErrorMessage } from './trendwatch-openrouter.mjs'
+import { launchOpenRouter, openRouterErrorMessage, safeOpenRouterDiagnostics } from './trendwatch-openrouter.mjs'
 import { launchCodex, codexErrorMessage } from './trendwatch-codex.mjs'
 import { boardContext, taskComments, comparisonContext, comparisonInputsMatch, quickHash, quickConfirmationSchema, validateQuickReview, quickReport, draftInputSchema, draftReviewSchema } from './trendwatch-quick.mjs'
 import { withActor } from './portal-auth.mjs'
@@ -73,6 +73,7 @@ export function createTrendwatchService({ repository, directory, enabled=false, 
     reviewCycleDueAt:job.reviewCycleDueAt,batchId:job.batchId,priorityPolicy:job.priorityPolicy,teamContext:job.teamContext,commentContext:job.commentContext,evidencePolicy:job.evidencePolicy,webSearch:job.webSearch??false,searchOutcome:job.searchOutcome,webUsage:job.webUsage,automatic:job.automatic??false,format:job.format,boardContext:job.boardContext,comparisonContext:job.comparisonContext,mode:job.mode??'runtime',packetHash:job.packetHash,sourceJobId:job.sourceJobId,sourceCount:job.sourceCount,
     sourceMessage:researchStopMessage(job.sourceStopReason),stopReason:job.stopReason,
     context:job.context,snapshot:job.snapshot,recommendation:job.recommendation??null,evidence:job.evidence??[],message:(job.status==='insufficient'?researchStopMessage(job.stopReason):null)||job.message||null,
+    failure:job.status==='failed'&&job.mode==='openrouter'&&openRouterErrorMessage(job.errorCode)?{code:job.errorCode,...safeOpenRouterDiagnostics(job.errorDiagnostics)}:null,
     stale:isStale(job,state),comparisonCurrent:comparisonCurrent(job,state),reviewAt:reviewDate(job),reviewDue:reviewDate(job)!==null&&Date.now()>=reviewDate(job),
     decision:state?.items.find(item=>item.id===job.itemId)?.trendwatchDecision??null}:null
   function terminate(child){child.kill('SIGTERM');const t=setTimeout(()=>{if(child.exitCode===null)child.kill('SIGKILL')},2000);t.unref();child.once('close',()=>clearTimeout(t))}
@@ -101,7 +102,7 @@ export function createTrendwatchService({ repository, directory, enabled=false, 
       try{
         if(JSON.stringify(message).length>500000)throw new Error('RESULT_TOO_LARGE')
         if(message?.type==='stage'&&stages.has(message.stage)){job.status='running';job.stage=message.stage;save(job)}
-        else if(message?.type==='error'){job.status='failed';job.message=openRouterErrorMessage(message.code)||codexErrorMessage(message.code)||'Исследование не завершилось. Проверьте подключение поиска, модели и доступный лимит; задачу можно оценить вручную.';job.errorCode=String(message.code).slice(0,100);if(typeof message.itemType==='string'&&/^[a-zA-Z_]{1,64}$/.test(message.itemType))job.errorItemType=message.itemType;if(message.diagnostics&&JSON.stringify(message.diagnostics).length<1000)job.errorDiagnostics=message.diagnostics;save(job);if(quickMode(job.mode))terminate(child)}
+        else if(message?.type==='error'){job.status='failed';job.message=openRouterErrorMessage(message.code)||codexErrorMessage(message.code)||'Исследование не завершилось. Проверьте подключение поиска, модели и доступный лимит; задачу можно оценить вручную.';job.errorCode=String(message.code).slice(0,100);if(typeof message.itemType==='string'&&/^[a-zA-Z_]{1,64}$/.test(message.itemType))job.errorItemType=message.itemType;if(job.mode==='openrouter'){job.errorDiagnostics=safeOpenRouterDiagnostics(message.diagnostics);job.completedAt=Date.now()}else if(message.diagnostics&&JSON.stringify(message.diagnostics).length<1000)job.errorDiagnostics=message.diagnostics;save(job);if(quickMode(job.mode))terminate(child)}
         else if(message?.type==='review'&&quickMode(job.mode)){
           if(job.webSearch)writeJson(path.join(directory,job.id,'web-response.json'),{review:message.review,web:message.web??null})
           const input=job.format==='quick-v1'?message.review:reviewImportSchema.parse(message.review)

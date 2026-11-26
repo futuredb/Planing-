@@ -63,14 +63,14 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   assert.equal((await request('/api/inbox/clarify', input)).status, 503)
   portal.controls.unavailable = false
   const status = await (await request(endpoint)).json()
-  assert.equal(status.available, true); assert.equal(status.mode, 'openrouter'); assert.equal(status.automatic, true)
+  assert.equal(status.available, true); assert.equal(status.mode, 'openrouter'); assert.equal(status.automatic, false) // Legacy AUTO=1 cannot start paid background work.
   assert.equal(JSON.stringify(status).includes(env.OPENROUTER_API_KEY), false)
   const draft = { title: 'Поисследовать продажи цифровых дизайнов', body: 'Хотим увеличить продажи.' }
-  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: 'Какие именно цифровые дизайны планируем продавать?' })
+  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: null })
   assert.deepEqual(await (await request('/api/inbox/clarify', { ...draft, body: 'Это шаблоны презентаций' })).json(), { question: null })
   assert.equal((await request('/api/inbox/clarify', { ...draft, title: 'x' })).status, 422)
-  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: 'Какие именно цифровые дизайны планируем продавать?' })
-  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: null }) // Three per actor / 30 seconds.
+  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: null })
+  assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: null }) // Disabled even when the legacy automatic flag is set.
   assert.equal((await (await request('/api/state')).json()).items.length, 1) // Draft never creates a task.
   assert.equal((await request(endpoint, input)).status, 200)
   let job
@@ -88,7 +88,7 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   await stop(); await start()
   assert.equal((await (await request('/api/state')).json()).items[0].priorityScore, 8)
   assert.equal((await (await request(endpoint)).json()).job.recommendation.score, 7)
-  // Save a draft answer through the real state API: automatic analysis receives it.
+  // Saving context does not launch analysis; a manual launch still receives the full text.
   const board = await (await request('/api/state')).json()
   const answeredBody = draft.body + '\n\nУточнение: Какие именно цифровые дизайны планируем продавать?\nОтвет: Шаблоны презентаций'
   const incoming = { ...item, id: 'answered', lane: 'inbox', title: draft.title, body: answeredBody, priorityScore: undefined }
@@ -97,6 +97,8 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
     'X-Funban-Base-Updated-At': String(board.updatedAt),
   }, body: JSON.stringify({ ...board, items: [...board.items, incoming] }) })
   assert.equal(put.status, 200, await put.text())
+  assert.equal((await (await request('/api/items/answered/trendwatch')).json()).job, null)
+  assert.equal((await request('/api/items/answered/trendwatch', { requestId: crypto.randomUUID(), title: incoming.title, body: answeredBody })).status, 200)
   let automaticJob
   for (let attempt = 0; attempt < 100; attempt++) {
     automaticJob = (await (await request('/api/items/answered/trendwatch')).json()).job
@@ -104,6 +106,7 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
     await new Promise(resolve => setTimeout(resolve, 50))
   }
   assert.equal(automaticJob?.status, 'ready', automaticJob?.message)
+  assert.equal(automaticJob.automatic, false)
   assert.equal(automaticJob.snapshot.body, answeredBody)
   assert.equal((await (await request('/api/state')).json()).items.find(i => i.id === 'answered').priorityScore, undefined)
   await stop(); env.FUNBAN_TRENDWATCH_AUTO = '0'; await start()
@@ -146,6 +149,27 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   const jsonArchive = JSON.parse(await fs.readFile(path.join(dir, 'state.json.trendwatch', failed.id, 'job.json'), 'utf8'))
   assert.equal(jsonArchive.errorDiagnostics.parseIssue, 'non_json')
   assert.equal(JSON.stringify(jsonArchive).includes('synthetic-secret'), false)
+  await stop(); await start()
+  assert.deepEqual((await (await request(endpoint)).json()).job.failure, failed.failure)
+  await stop(); env.FUNBAN_TEST_OPENROUTER_FAILURE = 'schema'; await start()
+  assert.equal((await request(endpoint, { ...input, requestId: crypto.randomUUID() })).status, 200)
+  for (let attempt = 0; attempt < 100; attempt++) {
+    failed = (await (await request(endpoint)).json()).job
+    if (failed?.status === 'failed') break
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  assert.equal(failed.failure.code, 'OPENROUTER_SCHEMA')
+  assert.equal(failed.failure.answerFormat, 'function_call')
+  assert.equal(failed.failure.schemaIssueCount, 6)
+  assert.deepEqual(failed.failure.schemaIssues, [0,1,2].flatMap(i=>[
+    {field:`sources.${i}.relevance`,code:'invalid_value'}, {field:`sources.${i}`,code:'unrecognized_keys'},
+  ]))
+  assert.equal(JSON.stringify(failed).includes('synthetic-secret'), false)
+  assert.equal(JSON.stringify(failed).includes('private-key'), false)
+  assert.deepEqual((await (await request('/api/state')).json()).items[0], beforeFailure)
+  const schemaArchive = JSON.parse(await fs.readFile(path.join(dir, 'state.json.trendwatch', failed.id, 'job.json'), 'utf8'))
+  assert.deepEqual(schemaArchive.errorDiagnostics.schemaIssues, failed.failure.schemaIssues)
+  assert.equal(JSON.stringify(schemaArchive).includes('synthetic-secret'), false)
   await stop(); await start()
   assert.deepEqual((await (await request(endpoint)).json()).job.failure, failed.failure)
   // Runtime switch disables new launches without deleting the saved analysis.

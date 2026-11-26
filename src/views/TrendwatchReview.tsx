@@ -9,7 +9,8 @@ import { Icon } from '../ui/Icon'
 
 const headers={'Content-Type':'application/json'}
 const failurePhases:Record<string,string>={prepare:'Подготовка анализа',budget:'Проверка бюджета ключа',generation:'Запрос к модели',response:'Проверка завершения ответа',parse:'Чтение JSON',schema:'Проверка формата оценки',validation:'Проверка источников и согласованности'}
-const parseIssues:Record<string,string>={no_final_message:'Нет итогового сообщения модели',empty_text:'Итоговое сообщение пустое',invalid_content:'Неожиданный формат содержимого сообщения',refusal:'Модель отказалась отвечать',unfinished_message:'Итоговое сообщение не завершено',markdown:'JSON обёрнут в Markdown',non_json:'Итоговый текст не читается как JSON',invalid_json:'Ошибка синтаксиса JSON'}
+const parseIssues:Record<string,string>={no_final_message:'Нет итогового сообщения модели',empty_text:'Итоговое сообщение пустое',invalid_content:'Неожиданный формат содержимого сообщения',refusal:'Модель отказалась отвечать',unfinished_message:'Итоговое сообщение не завершено',markdown:'JSON обёрнут в Markdown',non_json:'Итоговый текст не читается как JSON',invalid_json:'Ошибка синтаксиса JSON',invalid_function_call:'Некорректная или неоднозначная передача итоговой оценки'}
+const schemaIssues:Record<string,string>={invalid_type:'Неверный тип или отсутствует обязательное поле',too_big:'Превышен допустимый размер или значение',too_small:'Недостаточный размер или значение',invalid_format:'Неверный формат',invalid_value:'Значение не входит в допустимый список',unrecognized_keys:'Лишние поля',invalid_union:'Не соответствует допустимым вариантам',custom:'Не пройдена проверка поля'}
 const verdicts={recommend:'Рекомендую',clarify:'Стоит уточнить',defer:'Пока отложить'}
 const plainSummary=(text:string)=>text.replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g,'$1').replace(/\s*\[\d+(?:[,–-]\s*\d+)*\]/g,'').replace(/https?:\/\/\S+/g,'').trim()
 const lanes={inbox:'На разбор',backlog:'В бэклоге',todo:'В спринте',doing:'В работе',done:'Выполнено',archive:'В архиве'}
@@ -162,6 +163,7 @@ export function TrendwatchReview({item,onOpen,preview=false,refreshKey=''}:{item
         {job.failure.incompleteReason?<><br/>Причина: {job.failure.incompleteReason==='max_output_tokens'?'Достигнут лимит выходных токенов':'Ответ остановлен фильтром содержимого'}</>:null}
         {job.failure.validationCode?<><br/>Проверка: {job.failure.validationCode}</>:null}
         {job.failure.outputTokens!==undefined?<><br/>Выходных токенов: {job.failure.outputTokens}</>:null}
+        {job.failure.answerFormat?<><br/>Формат итога: {job.failure.answerFormat==='function_call'?'Структурированный результат':'Текст JSON'}</>:null}
         {job.failure.parseIssue?<><br/>Разбор: {parseIssues[job.failure.parseIssue]??'Неизвестная причина'}</>:null}
         {job.failure.reasoningTokens!==undefined?<><br/>Токенов рассуждения: {job.failure.reasoningTokens}</>:null}
         {job.failure.outputItems!==undefined?<><br/>Элементов ответа: {job.failure.outputItems}</>:null}
@@ -169,7 +171,7 @@ export function TrendwatchReview({item,onOpen,preview=false,refreshKey=''}:{item
         {job.failure.textParts!==undefined?<><br/>Текстовых частей: {job.failure.textParts}</>:null}
         {job.failure.answerBytes!==undefined?<><br/>Размер итогового текста: {job.failure.answerBytes} байт</>:null}
         {job.failure.schemaIssueCount!==undefined?<><br/>Нарушений формата: {job.failure.schemaIssueCount}</>:null}
-        {job.failure.schemaIssues?.map((issue,index)=><span key={index}><br/>{issue.field}: {issue.code}</span>)}
+        {job.failure.schemaIssues?.map((issue,index)=><span key={index} style={{overflowWrap:'anywhere'}}><br/>{issue.field}: {schemaIssues[issue.code]??issue.code} ({issue.code})</span>)}
         <br/>Запуск: <span style={{overflowWrap:'anywhere'}}>{job.id}</span>
       </p>
     </details>:null}

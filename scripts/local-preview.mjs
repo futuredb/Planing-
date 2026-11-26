@@ -30,7 +30,7 @@ const portal=await startMockPortal()
 const child=spawn(process.execPath,['server.mjs'],{cwd:root,stdio:'inherit',env:{...clarifierEnv,...process.env,
   NODE_ENV:'production',HOST:'127.0.0.1',PORT:String(serverPort),FUNBAN_DATA:dataFile,
   FUNBAN_PUBLIC_URL:`http://127.0.0.1:${port}/`,FUNBAN_PORTAL_IDENTITY_URL:portal.url,
-  FUNBAN_TRENDWATCH_CONCEPTS:process.env.FUNBAN_TRENDWATCH_CONCEPTS||'1',FUNBAN_TRENDWATCH_ENABLED:'1',FUNBAN_TRENDWATCH_WEB:process.env.FUNBAN_TRENDWATCH_WEB||'1',FUNBAN_TRENDWATCH_AUTO:process.env.FUNBAN_TRENDWATCH_AUTO||(mode==='openrouter'?'0':'1'),FUNBAN_TRENDWATCH_MODE:mode,FUNBAN_MCP_TOKEN:'',DASHBOARD_INGEST_URL:'',DASHBOARD_INGEST_TOKEN:'',
+  FUNBAN_TRENDWATCH_CONCEPTS:process.env.FUNBAN_TRENDWATCH_CONCEPTS||'1',FUNBAN_TRENDWATCH_ENABLED:'1',FUNBAN_TRENDWATCH_WEB:process.env.FUNBAN_TRENDWATCH_WEB||'1',FUNBAN_TRENDWATCH_AUTO:process.env.FUNBAN_TRENDWATCH_AUTO||'0',FUNBAN_TRENDWATCH_MODE:mode,FUNBAN_MCP_TOKEN:'',DASHBOARD_INGEST_URL:'',DASHBOARD_INGEST_TOKEN:'',
 }})
 const proxy=http.createServer((req,res)=>{
   if(![`127.0.0.1:${port}`,`localhost:${port}`].includes(req.headers.host)){res.writeHead(403);res.end('Недопустимый адрес локального сервера');return}

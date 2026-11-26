@@ -17,8 +17,6 @@ import { moveTask } from './state-operations.mjs'
 import { decodeImageDataUrl, findAttachment, stateForClient } from './state-transport.mjs'
 import { portalActor, portalRequired, portalLoginUrl, withActor } from './portal-auth.mjs'
 import { createTrendwatchService } from './trendwatch-service.mjs'
-import { createInboxClarifier } from './inbox-clarifier.mjs'
-import { launchOpenRouterClarifier } from './trendwatch-openrouter.mjs'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 const dist = path.join(root, 'dist')
@@ -44,14 +42,12 @@ const repository = createStateRepository(stateFile, {
     }
   },
 })
-const inboxClarifier = process.env.FUNBAN_TRENDWATCH_MODE === 'openrouter'
-  ? { launch: launchOpenRouterClarifier, close() {} }
-  : createInboxClarifier()
 const trendwatch = createTrendwatchService({
-  draftLauncher: inboxClarifier.launch, closeDraft: inboxClarifier.close,
   repository, directory: `${stateFile}.trendwatch`,
   mode: process.env.FUNBAN_TRENDWATCH_MODE || 'runtime',
-  automatic: process.env.FUNBAN_TRENDWATCH_AUTO === '1',
+  // Paid work is manual-only, including deployments with a legacy AUTO=1.
+  automatic: false,
+  // Preserve already-enabled free deadline maintenance, without enabling it on other boards.
   reviewIntervalMs: process.env.FUNBAN_TRENDWATCH_AUTO === '1' ? 60000 : 0,
   webSearch: process.env.FUNBAN_TRENDWATCH_WEB === '1',
   conceptReview: process.env.FUNBAN_TRENDWATCH_CONCEPTS === '1',

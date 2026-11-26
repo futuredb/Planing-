@@ -186,7 +186,7 @@ test('кнопка над действиями: окно по запросу, ф
  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBe(0)
 })
 
-test('автооценка после добавления: работает без открытого окна, не повторяется, подтверждение переносит в бэклог',async({page},info)=>{
+test('оценка только после ручного запуска, без повторов, подтверждение переносит в бэклог',async({page},info)=>{
  await page.goto('about:blank')
  await page.request.post('/__test/reset',{data:createSeed()})
  await page.request.post('/__test/research-mode',{data:{mode:'codex',automatic:true,web:true}})
@@ -197,18 +197,28 @@ test('автооценка после добавления: работает б�
  await page.getByRole('button',{name:'Добавить',exact:true}).click()
  const row=page.locator('.inbox-list > li').filter({has:page.getByRole('button',{name:title,exact:true})})
  await expect(page.getByRole('dialog',{name:'Рекомендация ИИ',exact:true})).toHaveCount(0)
- await expect(row.locator('.ai-score-button')).toHaveText('7',{timeout:15000})
+ await expect(row.locator('.ai-score-button')).toHaveText('—')
+ await row.locator('.ai-score-button').click()
+ const pending=page.getByRole('dialog',{name:'Рекомендация ИИ',exact:true})
+ await expect(pending.getByRole('button',{name:'Получить ИИ-рекомендацию'})).toBeVisible()
+ await expect.poll(async()=>{const state=await(await page.request.get('/api/state')).json();return state.items.some((i:{title:string})=>i.title===title)}).toBe(true)
+ const initial=await(await page.request.get('/api/state')).json(),incoming=initial.items.find((i:{title:string})=>i.title===title)
+ expect((await(await page.request.get(`/api/items/${incoming.id}/trendwatch`)).json()).job).toBeNull()
+ await pending.getByRole('button',{name:'Получить ИИ-рекомендацию'}).click()
+ await expect(pending.getByLabel('Оценка приоритета')).toHaveValue('7',{timeout:15000})
+ await pending.getByRole('button',{name:'Закрыть рекомендацию'}).click()
+ await expect(row.locator('.ai-score-button')).toHaveText('7')
  const board=await(await page.request.get('/api/state')).json(),item=board.items.find((i:{title:string})=>i.title===title)
  expect(item.lane).toBe('inbox');expect(item.priorityScore).toBeUndefined()
  const {job}=await(await page.request.get(`/api/items/${item.id}/trendwatch`)).json()
- expect(job.automatic).toBe(true);expect(job.status).toBe('ready');expect(job.webSearch).toBe(true);expect(job.evidence).toHaveLength(1)
+ expect(job.automatic).toBe(false);expect(job.status).toBe('ready');expect(job.webSearch).toBe(true);expect(job.evidence).toHaveLength(1)
  await page.reload();await page.getByRole('button',{name:'Входящие',exact:true}).click()
  await expect(row.locator('.ai-score-button')).toHaveText('7')
  expect((await(await page.request.get(`/api/items/${item.id}/trendwatch`)).json()).job.id).toBe(job.id)
  await row.locator('.ai-score-button').click()
  const panel=page.getByRole('dialog',{name:'Рекомендация ИИ',exact:true})
  await expect(panel.getByLabel('Оценка приоритета')).toHaveValue('7')
- await panel.screenshot({path:`output/playwright/auto-review-${info.project.name}.png`,animations:'disabled'})
+ await panel.screenshot({path:`output/playwright/manual-review-${info.project.name}.png`,animations:'disabled'})
  await panel.getByLabel('Оценка приоритета').fill('8')
  await confirmAndReopen(page,panel)
  await expect(panel.getByRole('button',{name:'Подтверждено',exact:true})).toBeDisabled()
@@ -245,48 +255,6 @@ test('лёгкий поиск: источники в компактном окн
  await confirmAndReopen(page,panel)
  await expect(panel.getByRole('button',{name:'Подтверждено'})).toBeDisabled()
  expect((await getItem()).lane).toBe('backlog');expect((await getItem()).priorityScore).toBe(8)
-})
-
-async function prepareDraft(page:Page,title:string){
- await page.goto('about:blank')
- await page.request.post('/__test/reset',{data:createSeed()})
- await page.request.post('/__test/research-mode',{data:{mode:'codex',automatic:true,web:true}})
- await page.goto('/');await page.getByRole('button',{name:'Входящие',exact:true}).click()
- await page.getByLabel('Название идеи').fill(title)
- await page.getByLabel('Контекст идеи').fill('Цель бизнеса — продать много цифровых дизайнов. Нужно выбрать предложение и цену.')
-}
-
-test('уточнение при вводе необязательно: ответ сохраняется, фокус не меняется, оценка готовится после ухода',async({page},info)=>{
- const title='Продажи дизайнов: необязательное уточнение'
- await prepareDraft(page,title)
- const answer=page.getByLabel('Необязательное уточнение')
- await expect(answer).toBeVisible({timeout:10000})
- await expect(page.getByLabel('Контекст идеи')).toBeFocused()
- await expect(page.getByRole('button',{name:'Добавить',exact:true})).toBeEnabled()
- await answer.fill('Оформление банковских карт')
- await page.locator('form.capture').screenshot({path:`output/playwright/optional-clarification-${info.project.name}.png`})
- await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBe(0)
- await page.getByRole('button',{name:'Добавить',exact:true}).click()
- let item:{id:string;body:string;priorityScore?:number}|undefined
- await expect.poll(async()=>{const b=await(await page.request.get('/api/state')).json();item=b.items.find((i:{title:string})=>i.title===title);return Boolean(item)}).toBe(true)
- expect(item!.body).toContain('Ответ: Оформление банковских карт')
- await page.goto('about:blank')
- await expect.poll(async()=>{const data=await(await page.request.get(`/api/items/${item!.id}/trendwatch`)).json();return data.job?.status},{timeout:10000}).toBe('ready')
- const data=await(await page.request.get(`/api/items/${item!.id}/trendwatch`)).json()
- expect(data.job.priorityPolicy).toBe('criteria-v2');expect(data.job.recommendation.score).toBe(7);expect(data.job.decision).toBeNull()
-})
-
-test('добавление не ждёт вопроса ИИ; пропуск не лишает задачу автоматической оценки',async({page})=>{
- const title='Медленное уточнение: продажи дизайнов'
- const request=page.waitForRequest(r=>r.url().endsWith('/api/inbox/clarify'))
- await prepareDraft(page,title);await request
- await expect(page.getByRole('button',{name:'Добавить',exact:true})).toBeEnabled()
- await page.getByRole('button',{name:'Добавить',exact:true}).click()
- const row=page.locator('.inbox-list > li').filter({has:page.getByRole('button',{name:title,exact:true})})
- await expect(row.locator('.ai-score-button')).toHaveText('7',{timeout:10000})
- await expect(page.getByLabel('Необязательное уточнение')).toHaveCount(0)
- const board=await(await page.request.get('/api/state')).json(),item=board.items.find((i:{title:string})=>i.title===title)
- expect(item.body).not.toContain('Уточнение:');expect(item.priorityScore).toBeUndefined();expect(item.lane).toBe('inbox')
 })
 
 test('критерии скрыты по умолчанию; через месяц пересмотр из бэклога сохраняет подтверждённый итог',async({page},info)=>{

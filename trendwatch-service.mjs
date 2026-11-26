@@ -179,7 +179,7 @@ export function createTrendwatchService({ repository, directory, enabled=false, 
       jobs:current.map(j=>({itemId:j.itemId,id:j.id,status:j.status,score:j.status==='ready'?j.recommendation?.score??null:null,stale:isStale(j,state),reviewDue:reviewDate(j)!==null&&Date.now()>=reviewDate(j)}))}
   }
   async function maintainReviews(){
-    if(!available()||!quickMode(mode)||!automatic)return
+    if(!available()||!quickMode(mode))return
     let state=await repository.read()
     if(!state)return
     const overdue=state.items.filter(i=>i.lane==='backlog'&&!i.parentId&&reviewState(i).needsDecision&&Date.now()>=reviewState(i).returnAt&&!(i.priorityReview?.returnedAt>=reviewState(i).dueAt))
@@ -197,7 +197,7 @@ export function createTrendwatchService({ repository, directory, enabled=false, 
       })
       state=await repository.read()
     }
-    if(children.size||[...jobs.values()].some(j=>activeStatuses.has(j.status)))return
+    if(!automatic||children.size||[...jobs.values()].some(j=>activeStatuses.has(j.status)))return
     const candidate=state.items.filter(i=>i.lane==='backlog'&&!i.parentId&&i.title.trim().length>=3).map(item=>({item,status:reviewState(item)}))
       .filter(({item,status})=>status.needsDecision&&![...jobs.values()].some(j=>j.itemId===item.id&&(j.reviewCycleDueAt===status.dueAt||j.createdAt>=status.dueAt)))
       .sort((a,b)=>a.status.dueAt-b.status.dueAt)[0]

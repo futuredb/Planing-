@@ -3,7 +3,7 @@ import type { Criterion, Item, MatrixBucket } from './types'
 
 export type ResearchContext = { audience: string; goal: string; geography: string; horizon: string }
 export type ResearchJob = {
-  failure?: {code:string;phase?:string;elapsedMs?:number;httpStatus?:number;responseStatus?:string;incompleteReason?:string;networkCode?:string;validationCode?:string;outputTokens?:number;parseIssue?:string;reasoningTokens?:number;outputItems?:number;assistantMessages?:number;textParts?:number;answerBytes?:number;schemaIssueCount?:number;schemaIssues?:{field:string;code:string}[]} | null
+  failure?: {code:string;phase?:string;elapsedMs?:number;httpStatus?:number;responseStatus?:string;incompleteReason?:string;networkCode?:string;validationCode?:string;outputTokens?:number;answerFormat?:string;parseIssue?:string;reasoningTokens?:number;outputItems?:number;assistantMessages?:number;textParts?:number;answerBytes?:number;schemaIssueCount?:number;schemaIssues?:{field:string;code:string}[]} | null
   priorityPolicy?:'concept-mvp-v1'|'business-v2'|'business-v3'|'criteria-v1'|'criteria-v2'
   comparisonCurrent?:boolean
   evidencePolicy?:'adaptive-signals-v4'|'adaptive-signals-v3'|'adaptive-signals-v2'|'adaptive-signals-v1'|'idea-relevance-v1'|'independent-signals-v1'|'regional-signals-v1'|'regional-signals-v2'|'regional-signals-v3'|'regional-signals-v4'

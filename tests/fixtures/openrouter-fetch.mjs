@@ -27,7 +27,13 @@ globalThis.fetch = async (url, options = {}) => {
     regionalApplicability: { status: 'unknown', summary: 'Внутренняя задача.', sourceUrls: [] }, relatedTasks: [],
   })
   result.searchOutcome = 'not_needed'; result.sources = []
-  return Response.json({ status: 'completed', output: [{type:'message',role:'assistant',content:[{type:'output_text',text:'Проверю контекст задачи.'}]}, { type: 'message', role: 'assistant', content: [
-    { type: 'output_text', text: JSON.stringify(result), annotations: [] },
-  ] }], usage: { input_tokens: 100, output_tokens: 100, server_tool_use_details: { web_search_requests: 0, tool_calls_executed: 0 } } })
+  const tool=payload.tools.find(tool=>tool.name==='submit_priority')
+  if(!tool?.strict||tool.parameters?.properties.sources.items.properties.relevance.enum.join(',')!=='direct,analogy')throw new Error('TEST_MISSING_STRICT_PRIORITY_TOOL')
+  if(process.env.FUNBAN_TEST_OPENROUTER_FAILURE==='schema'){
+    const source={title:'Test',url:'https://example.com',signal:'Test',publishedAt:null,origin:'Test',relevance:'synthetic-secret',applicability:'Test',limitation:'Test','private-key':'synthetic-secret'}
+    result.sources=[source,source,source]
+  }
+  return Response.json({ status: 'completed', output: [{type:'message',role:'assistant',content:[{type:'output_text',text:'Проверю контекст задачи.'}]},
+    {type:'function_call',name:'submit_priority',call_id:'synthetic-call',status:'completed',arguments:JSON.stringify(result)},
+  ], usage: { input_tokens: 100, output_tokens: 100, server_tool_use_details: { web_search_requests: 0, tool_calls_executed: 0 } } })
 }

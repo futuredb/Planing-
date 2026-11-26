@@ -3,7 +3,8 @@
   "git": {
     "deploymentEnabled": {
       "codex/funban-ai-prioritization": false,
-      "codex/openrouter-diagnostics": false
+      "codex/openrouter-diagnostics": false,
+      "codex/openrouter-structured-priority": false
     }
   }
 }

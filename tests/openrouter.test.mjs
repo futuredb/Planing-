@@ -138,6 +138,7 @@ test('incomplete generation, invalid JSON, schema and evidence have distinct dia
 test('unknown provider data and diagnostics fields cannot leak into errors',async t=>{
  assert.deepEqual(safeOpenRouterDiagnostics({schemaIssues:[{field:'private',code:'too_big',message:'secret'}]}),{schemaIssues:[{field:'other',code:'too_big'}]})
  assert.deepEqual(safeOpenRouterDiagnostics({phase:'private',networkCode:'secret',validationCode:'secret',incompleteReason:'secret',responseStatus:'secret',elapsedMs:Infinity,httpStatus:999,outputTokens:-1,headers:{Authorization:'secret'},message:'secret',stack:'secret'}),{})
+ assert.deepEqual(safeOpenRouterDiagnostics({parseIssue:'synthetic-secret',answerBytes:'secret',reasoningTokens:-1,assistantMessages:Infinity,outputItems:1e10,textParts:NaN,answer:'synthetic-secret'}),{})
  for(const [answer,code] of [[{status:'failed',error:{message:'private synthetic-secret'}},'OPENROUTER_PROVIDER'],[null,'OPENROUTER_RESPONSE']]){
   const r=await fixture(t,{answer}).result
   assert.equal(r.code,code);assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
@@ -153,4 +154,57 @@ test('generation transport failure is distinct from budget failure',async t=>{
  const r=await x.result
  assert.equal(r.code,'OPENROUTER_NETWORK');assert.equal(r.diagnostics.phase,'generation')
  assert.equal(r.diagnostics.networkCode,'UND_ERR_HEADERS_TIMEOUT');assert.equal(x.requests.length,2)
+})
+
+test('final JSON is read separately from intermediate assistant messages',async t=>{
+ const answer=response()
+ const final=answer.output[0]
+ // Multiple text parts of ONE final message still form one JSON document.
+ const json=final.content[0].text,cut=Math.floor(json.length/2)
+ final.content=[{type:'output_text',text:json.slice(0,cut)},{type:'output_text',text:json.slice(cut)}]
+ answer.output.unshift({type:'message',role:'assistant',content:[{type:'output_text',text:'Сначала проверю контекст.'}]},{type:'reasoning',summary:[]})
+ const x=fixture(t,{answer}),r=await x.result
+ assert.equal(r.type,'review');assert.equal(r.review.recommendation.score,7)
+ assert.equal(x.requests.length,2)
+})
+
+test('unusable final output is diagnosed without falling back to an earlier valid answer',async t=>{
+ const message=content=>({type:'message',role:'assistant',content})
+ const cases=[
+  [[], 'no_final_message'],
+  [[{type:'reasoning',summary:[{text:'synthetic-secret'}]}], 'no_final_message'],
+  [[message([])], 'empty_text'],
+  [[{type:'message',role:'assistant',content:'synthetic-secret'}], 'invalid_content'],
+  [[message([null])], 'invalid_content'],
+  [[{...message([{type:'output_text',text:JSON.stringify(review)}]),phase:'commentary'}], 'no_final_message'],
+  [[message([{type:'output_text',text:'   '}])], 'empty_text'],
+  [[message([{type:'output_text',text:{secret:'synthetic-secret'}}])], 'invalid_content'],
+  [[message([{type:'refusal',refusal:'synthetic-secret'}])], 'refusal'],
+  [[{...message([{type:'output_text',text:JSON.stringify(review)}]),status:'incomplete'}], 'unfinished_message'],
+  [[message([{type:'output_text',text:'```json\n{"secret":"synthetic-secret"}\n```'}])], 'markdown'],
+  [[message([{type:'output_text',text:'synthetic-secret'}])], 'non_json'],
+  [[message([{type:'output_text',text:'{"secret":"synthetic-secret"'}])], 'invalid_json'],
+ ]
+ for(const [output,parseIssue]of cases){
+  const answer={...response(),output:[...response().output,...output],usage:{output_tokens:4740,output_tokens_details:{reasoning_tokens:4000}}}
+  if(!output.length)answer.output=[]
+  const x=fixture(t,{answer}),r=await x.result
+  assert.equal(r.type,'error',parseIssue);assert.equal(r.diagnostics.parseIssue,parseIssue)
+  assert.equal(r.diagnostics.outputItems,answer.output.length)
+  assert.equal(r.diagnostics.reasoningTokens,4000)
+  assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
+  assert.equal(x.requests.length,2)
+ }
+})
+
+test('intermediate provider citations survive final-message extraction; invented URLs still fail',async t=>{
+ const source={title:'Синтетический источник',url:'https://example.com/market',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест рынка',limitation:'Синтетический тест'}
+ const market={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'found',sources:[source]}
+ for(const cited of [true,false]){
+  const answer=response(market,[],1)
+  answer.output.unshift({type:'message',role:'assistant',content:[{type:'output_text',text:'Результат поиска.',annotations:cited?[{type:'url_citation',url:source.url}]:[]}]})
+  const r=await fixture(t,{answer}).result
+  assert.equal(r.type,cited?'review':'error')
+  if(!cited)assert.equal(r.code,'OPENROUTER_VALIDATION')
+ }
 })

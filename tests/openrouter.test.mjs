@@ -13,9 +13,15 @@ const job={id:'11111111-1111-4111-8111-111111111111',format:'quick-v1',webSearch
 job.packetHash=quickHash(job,[])
 const review={jobId:job.id,packetHash:job.packetHash,recommendation:{assessmentKind:'internal_improvement',matrixBucket:'automate',summary:'Экономия 8 часов за четыре недели по данным задачи.',score:7,verdict:'recommend',decisionValue:'Освободить время для концепций.',comparison:{status:'insufficient',itemIds:[],reason:'Нет сравнимых оценок.'},rationale:'Подтверждённая повторная экономия времени.',limitations:'Не известны затраты внедрения.',evidenceStrength:'limited',regionalApplicability:{status:'unknown',summary:'Внутренний инструмент.',sourceUrls:[]},relatedTasks:[]},searchOutcome:'not_needed',sources:[]}
 function response(answer=review,annotations=[],count=0){return {status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify(answer),annotations}]}],usage:{input_tokens:100,output_tokens:200,server_tool_use_details:{web_search_requests:count,tool_calls_executed:count}}}}
-function fixture(t,{answer=response(),key={limit:5,limit_remaining:5},config=env,fetcher}={}){
+function submitted(answer=review,annotations=[],count=0){
+ const data=response(answer,annotations,count)
+ data.output[0].content[0].text='Источники проверены.'
+ data.output.push({type:'function_call',name:'submit_priority',call_id:'test-call',status:'completed',arguments:JSON.stringify(answer)})
+ return data
+}
+function fixture(t,{answer=response(),key={limit:5,limit_remaining:5},config=env,fetcher,task=job}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'openrouter-test-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}))
- fs.writeFileSync(path.join(dir,'job.json'),JSON.stringify(job));fs.writeFileSync(path.join(dir,'materials.json'),JSON.stringify({sources:[]}))
+ fs.writeFileSync(path.join(dir,'job.json'),JSON.stringify(task));fs.writeFileSync(path.join(dir,'materials.json'),JSON.stringify({sources:[]}))
  const requests=[]
  const child=launchOpenRouter(dir,{env:config,fetchImpl:async(url,options)=>{
   requests.push({url,options,body:options.body?JSON.parse(options.body):null})
@@ -36,7 +42,7 @@ test('internal review: bounded request, no observed searches, credentials only i
  assert.equal(request.body.max_output_tokens,4096)
  assert.deepEqual(request.body.stop_server_tools_when,[{type:'step_count_is',step_count:2}])
  assert.equal(request.body.tools[0].parameters.engine,'exa');assert.equal(request.body.tools[0].parameters.max_uses,3)
- assert.equal(request.body.text.format.schema.properties.recommendation.properties.regionalApplicability.properties.sourceUrls.items.format,undefined)
+ assert.equal(request.body.tools.find(tool=>tool.name==='submit_priority').parameters.properties.recommendation.properties.regionalApplicability.properties.sourceUrls.items.format,undefined)
  assert.equal(JSON.stringify(request.body).includes(env.OPENROUTER_API_KEY),false)
  assert.equal(JSON.stringify(result).includes(env.OPENROUTER_API_KEY),false)
 })
@@ -207,4 +213,82 @@ test('intermediate provider citations survive final-message extraction; invented
   assert.equal(r.type,cited?'review':'error')
   if(!cited)assert.equal(r.code,'OPENROUTER_VALIDATION')
  }
+})
+
+test('search request submits its final review through a strict function with the complete source schema',async t=>{
+ const x=fixture(t,{answer:submitted()}),r=await x.result
+ assert.equal(r.type,'review');assert.equal(r.review.recommendation.score,7)
+ const body=x.requests[1].body,tool=body.tools.find(tool=>tool.name==='submit_priority')
+ assert.equal(tool.type,'function');assert.equal(tool.strict,true)
+ assert.equal(tool.parameters.additionalProperties,false)
+ assert.deepEqual(tool.parameters.properties.sources.items.properties.relevance.enum,['direct','analogy'])
+ assert.equal(tool.parameters.properties.sources.items.additionalProperties,false)
+ assert.equal(body.text,undefined)
+ assert.match(body.instructions,/submit_priority/)
+ assert.equal(body.max_output_tokens,4096)
+ assert.equal(x.requests.length,2) // Budget + exactly one generation, no repair calls.
+})
+
+test('submitted market reviews still require provider citations and measured search usage',async t=>{
+ const source={title:'Синтетический источник',url:'https://example.com/market',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест рынка',limitation:'Синтетический тест'}
+ const market={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'found',sources:[source]}
+ for(const [cited,count,expected] of [[true,2,'review'],[false,2,'error'],[true,0,'error'],[true,4,'error']]){
+  const x=fixture(t,{answer:submitted(market,cited?[{type:'url_citation',url:source.url}]:[],count)})
+  assert.equal((await x.result).type,expected);assert.equal(x.requests.length,2)
+ }
+})
+
+test('invalid or ambiguous submission never falls back to earlier valid JSON or invokes a function',async t=>{
+ const valid=submitted().output.at(-1)
+ for(const calls of [
+  [{...valid,name:'private-function'}], [valid,valid],
+  [{...valid,status:'incomplete'}], [{...valid,arguments:{secret:'synthetic-secret'}}],
+  [{...valid,arguments:'{"secret":"synthetic-secret"'}],
+  [valid,...response().output],
+ ]){
+  const x=fixture(t,{answer:{...response(),output:[...response().output,...calls]}}),r=await x.result
+  assert.equal(r.type,'error');assert.equal(r.code,'OPENROUTER_JSON')
+  assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
+  assert.equal(JSON.stringify(r).includes('private-function'),false)
+  assert.equal(x.requests.length,2)
+ }
+})
+
+test('all six nested source violations remain visible without exposing values or extra keys',async t=>{
+ const source={title:'Test',url:'https://example.com',signal:'Test',publishedAt:null,origin:'Test',relevance:'synthetic-secret',applicability:'Test',limitation:'Test','private-key':'synthetic-secret'}
+ const bad={...review,sources:[source,source,source]}
+ for(const answer of [response(bad),submitted(bad)]){
+  const x=fixture(t,{answer}),r=await x.result
+  assert.equal(r.code,'OPENROUTER_SCHEMA')
+  assert.equal(r.diagnostics.schemaIssueCount,6)
+  assert.deepEqual(r.diagnostics.schemaIssues,[0,1,2].flatMap(i=>[
+   {field:`sources.${i}.relevance`,code:'invalid_value'},
+   {field:`sources.${i}`,code:'unrecognized_keys'},
+  ]))
+  assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
+  assert.equal(JSON.stringify(r).includes('private-key'),false)
+  assert.equal(safeOpenRouterDiagnostics(r.diagnostics).schemaIssues.length,6)
+ }
+})
+
+test('nested diagnostic allowlist accepts schema paths only, with bounded size',()=>{
+ const fields=['sources.0.url','recommendation.regionalApplicability.sourceUrls.1','recommendation.relatedTasks.0.itemId','recommendation.comparison.itemIds.0','recommendation.scores.0.basis.1.kind']
+ for(const field of fields)assert.equal(safeOpenRouterDiagnostics({schemaIssues:[{field,code:'invalid_value'}]}).schemaIssues[0].field,field)
+ for(const field of ['sources.secret.url','sources.0.private','sources.999999999.url','recommendation.scores.0.basis.0.secret','recommendation.secret','']){
+  assert.equal(safeOpenRouterDiagnostics({schemaIssues:[{field,code:'invalid_value'}]}).schemaIssues[0].field,'other')
+ }
+ assert.equal(safeOpenRouterDiagnostics({schemaIssues:Array.from({length:100},()=>({field:'sources',code:'invalid_type'}))}).schemaIssues.length,10)
+})
+
+test('disabled web uses the existing strict text schema without any tools or extra requests',async t=>{
+ const task={...job,webSearch:false};task.packetHash=quickHash(task,[])
+ const {searchOutcome:_,sources:__,...plain}=review
+ const answer={...plain,packetHash:task.packetHash}
+ const x=fixture(t,{task,answer:response(answer)}),r=await x.result
+ assert.equal(r.type,'review');assert.equal(r.review.recommendation.score,7)
+ assert.deepEqual(x.requests[1].body.tools,[])
+ assert.equal(x.requests[1].body.text.format.name,'funban_priority')
+ assert.equal(x.requests[1].body.text.format.strict,true)
+ assert.equal(x.requests.length,2)
+ assert.equal((await fixture(t,{task,answer:submitted(answer)}).result).diagnostics.parseIssue,'invalid_function_call')
 })

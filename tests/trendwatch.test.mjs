@@ -690,3 +690,25 @@ for(const mode of ['codex','openrouter'])test(`${mode}: inbox confirmation prese
  assert.equal(next.mode,mode)
  assert.equal(next.format,'quick-v1')
 })
+
+
+test('manual-only mode preserves deadlines and free overdue moves without launching AI',async t=>{
+ let now=1800000000000;t.mock.method(Date,'now',()=>now)
+ const x=await setup(t,{mode:'codex',conceptReview:true,automatic:false})
+ await x.repository.mutate({action:'seed'},state=>{Object.assign(state.items[0],{lane:'backlog',priorityScore:5,matrixBucket:'research-next',createdAt:now});return{state,result:{}}})
+ now+=30*86400000
+ await x.service.maintainReviews()
+ assert.equal((await x.service.get('task')).review.needsDecision,true)
+ assert.equal((await x.repository.read()).items[0].matrixBucket,'research-next')
+ assert.equal(x.children.length,0)
+ now+=14*86400000
+ await x.service.maintainReviews()
+ const item=(await x.repository.read()).items[0]
+ assert.equal(item.matrixBucket,null);assert.equal(item.priorityScore,5)
+ assert.equal(item.priorityReview.previousBucket,'research-next')
+ assert.equal(x.children.length,0);assert.equal((await x.service.get('task')).job,null)
+ await x.repository.mutate({action:'manual-move'},state=>{state.items[0].matrixBucket='take-next';return{state,result:{}}})
+ await x.service.maintainReviews()
+ assert.equal((await x.repository.read()).items[0].matrixBucket,'take-next')
+ assert.equal(x.children.length,0)
+})

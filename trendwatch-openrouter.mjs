@@ -27,6 +27,13 @@ export function openRouterClarifierConfig(env=process.env){
 const validationCodes = new Set(['INVALID_CRITERION_BASIS','MISSING_CRITERION_BASIS','WEB_SEARCH_REQUIRED','INTERNAL_SEARCH_FORBIDDEN','INVALID_PRIORITY_COMPARISON','INCONSISTENT_PRIORITY_COMPARISON','MISSING_REGIONAL_ASSESSMENT','INVALID_REGIONAL_EVIDENCE','INVALID_CRITERIA_SCORES','PACKET_MISMATCH','UNKNOWN_RELATED_TASK','WEB_SEARCH_NOT_VERIFIED','MISSING_WEB_EVIDENCE','UNKNOWN_WEB_SOURCE'])
 const networkCodes = new Set(['ENOTFOUND','EAI_AGAIN','ECONNREFUSED','ECONNRESET','ETIMEDOUT','ENETUNREACH','EHOSTUNREACH','UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_BODY_TIMEOUT','UND_ERR_SOCKET','UND_ERR_ABORTED','ERR_TLS_CERT_ALTNAME_INVALID','CERT_HAS_EXPIRED','UNABLE_TO_VERIFY_LEAF_SIGNATURE','SELF_SIGNED_CERT_IN_CHAIN'])
 const schemaFields = new Set(['jobId','packetHash','searchOutcome','sources','recommendation','recommendation.score','recommendation.verdict','recommendation.summary','recommendation.assessmentKind','recommendation.matrixBucket','recommendation.comparison','recommendation.comparison.status','recommendation.comparison.itemIds','recommendation.comparison.reason','recommendation.rationale','recommendation.limitations','recommendation.evidenceStrength','recommendation.decisionValue','recommendation.regionalApplicability','recommendation.relatedTasks','recommendation.scores'])
+const nestedSchemaFields = [
+  /^sources\.\d{1,4}(?:\.(?:title|url|signal|publishedAt|origin|relevance|applicability|limitation))?$/,
+  /^recommendation\.regionalApplicability\.(?:status|summary|sourceUrls(?:\.\d{1,4})?)$/,
+  /^recommendation\.comparison\.itemIds\.\d{1,4}$/,
+  /^recommendation\.relatedTasks\.\d{1,4}(?:\.(?:itemId|reason))?$/,
+  /^recommendation\.scores\.\d{1,4}(?:\.(?:criterionId|value|reason|assumed|basis(?:\.\d{1,4}(?:\.(?:kind|ref|quote))?)?))?$/,
+]
 const schemaIssueCodes = new Set(['invalid_type','too_big','too_small','invalid_format','invalid_value','unrecognized_keys','invalid_union','custom'])
 // Allowlisted scalars only. Never persist error.message, stack, headers or provider bodies.
 export function safeOpenRouterDiagnostics(value={}) {
@@ -35,21 +42,22 @@ export function safeOpenRouterDiagnostics(value={}) {
     phase:['prepare','budget','generation','response','parse','schema','validation'],
     responseStatus:['completed','incomplete','failed','cancelled','queued','in_progress'],
     incompleteReason:['max_output_tokens','content_filter'],
-    parseIssue:['no_final_message','empty_text','invalid_content','refusal','unfinished_message','markdown','non_json','invalid_json'],
+    parseIssue:['no_final_message','empty_text','invalid_content','refusal','unfinished_message','markdown','non_json','invalid_json','invalid_function_call'],
+    answerFormat:['message','function_call'],
     networkCode:[...networkCodes],validationCode:[...validationCodes],
   }))if(allowed.includes(value?.[key]))result[key]=value[key]
   for(const key of ['elapsedMs','httpStatus','outputTokens','schemaIssueCount','reasoningTokens','outputItems','assistantMessages','textParts','answerBytes']){
     const n=value?.[key]
     if(Number.isSafeInteger(n)&&n>=0&&n<=1e9&&(key!=='httpStatus'||n>=100&&n<=599))result[key]=n
   }
-  if(Array.isArray(value?.schemaIssues))result.schemaIssues=value.schemaIssues.slice(0,5).flatMap(issue=>
-    schemaIssueCodes.has(issue?.code)?[{field:schemaFields.has(issue.field)?issue.field:'other',code:issue.code}]:[])
+  if(Array.isArray(value?.schemaIssues))result.schemaIssues=value.schemaIssues.slice(0,10).flatMap(issue=>
+    schemaIssueCodes.has(issue?.code)?[{field:typeof issue.field==='string'&&issue.field.length<=120&&(schemaFields.has(issue.field)||nestedSchemaFields.some(pattern=>pattern.test(issue.field)))?issue.field:'other',code:issue.code}]:[])
   return result
 }
 
 // Tool runs can include intermediate assistant messages. Read only the terminal
-// message; never salvage JSON from an earlier turn when the final answer failed.
-function finalJson(data,diagnostics) {
+// submission or message; never salvage an earlier answer when the final failed.
+function finalJson(data,diagnostics,allowSubmission=false) {
   const output=data.output
   const messages=output.filter(i=>i?.type==='message'&&i.role==='assistant')
   const parts=messages.flatMap(i=>Array.isArray(i.content)?i.content:[]).filter(p=>p?.type==='output_text')
@@ -57,12 +65,22 @@ function finalJson(data,diagnostics) {
     reasoningTokens:data.usage?.output_tokens_details?.reasoning_tokens}))
   const reject=issue=>{diagnostics.parseIssue=issue;throw failure('OPENROUTER_JSON')}
   const last=output.at(-1)
-  if(last?.type!=='message'||last.role!=='assistant'||last.phase==='commentary')reject('no_final_message')
-  if(last.status!==undefined&&last.status!=='completed')reject('unfinished_message')
-  if(!Array.isArray(last.content))reject('invalid_content')
-  if(last.content.some(p=>p?.type==='refusal'))reject('refusal')
-  if(last.content.some(p=>p?.type!=='output_text'||typeof p.text!=='string'))reject('invalid_content')
-  const answer=last.content.map(p=>p.text).join('')
+  const functions=output.filter(i=>i?.type==='function_call')
+  let answer
+  if(functions.length){
+    if(!allowSubmission||functions.length!==1||last!==functions[0]||last.name!=='submit_priority'||typeof last.arguments!=='string')reject('invalid_function_call')
+    if(last.status!==undefined&&last.status!=='completed')reject('unfinished_message')
+    diagnostics.answerFormat='function_call'
+    answer=last.arguments
+  }else{
+    if(last?.type!=='message'||last.role!=='assistant'||last.phase==='commentary')reject('no_final_message')
+    if(last.status!==undefined&&last.status!=='completed')reject('unfinished_message')
+    if(!Array.isArray(last.content))reject('invalid_content')
+    if(last.content.some(p=>p?.type==='refusal'))reject('refusal')
+    if(last.content.some(p=>p?.type!=='output_text'||typeof p.text!=='string'))reject('invalid_content')
+    diagnostics.answerFormat='message'
+    answer=last.content.map(p=>p.text).join('')
+  }
   diagnostics.answerBytes=Buffer.byteLength(answer)
   if(diagnostics.answerBytes>64000)throw failure('OPENROUTER_RESPONSE_SIZE')
   if(!answer.trim())reject('empty_text')
@@ -196,15 +214,23 @@ export function launchOpenRouter(directory,{env=process.env,fetchImpl=(input, in
         'Для bug/internal_improvement без вопроса о новом подходе НЕ вызывай поиск. Для market_idea/approach_research используй лёгкий поиск. '+
         'В этом адаптере вместо web_search доступен openrouter:web_search. Он возвращает выдержки страниц; отдельного открытия страниц нет. '+
         'Ссылайся только на URL из полученных результатов, не утверждай, что прочитал страницу целиком. Планируй один или два запроса, максимум три, и после этого сразу выдай итог. Нужны независимые примеры и применимость к РФ. '+
-        'В поисковые запросы отправляй только публичную тему без внутренних имён, цитат и данных доски.'
+        'В поисковые запросы отправляй только публичную тему без внутренних имён, цитат и данных доски. '+
+        (job.webSearch?'Итог верни ровно одним вызовом submit_priority, после поиска, если он нужен. Это передача результата, а не запуск действия. '+
+          'Шаблон ответа из задания — аргументы этой функции. Соблюдай её схему, не добавляй поля. '+
+          'Перед вызовом кратко процитируй использованные источники в сообщении, чтобы сохранить ссылки результатов поиска; без поиска сообщение не требуется.':'')
       const input=quickPacket(job,sources)
       if(Buffer.byteLength(input)>100000)throw failure('OPENROUTER_RESPONSE_SIZE')
       child.emit('message',{type:'stage',stage:'prioritizing'})
       diagnostics.phase='generation'
       const data=await request('/responses',{model:config.model,store:false,stream:false,instructions,input,
         max_output_tokens:config.maxTokens,provider:{require_parameters:true,data_collection:'deny'},
-        text:{format:{type:'json_schema',name:'funban_priority',strict:true,schema:priorityResponseSchema(schema)}},
-        tools:job.webSearch?[{type:'openrouter:web_search',parameters:{engine:'exa',mode:'fast',max_uses:webLimits.queries,max_results:3,max_total_results:9,max_characters:2000}}]:[],
+        // Server-tool loops may not enforce text.format. The strict final function
+        // carries the same schema; it is parsed as data and never executed.
+        ...(job.webSearch?{}:{text:{format:{type:'json_schema',name:'funban_priority',strict:true,schema:priorityResponseSchema(schema)}}}),
+        tools:job.webSearch?[
+          {type:'openrouter:web_search',parameters:{engine:'exa',mode:'fast',max_uses:webLimits.queries,max_results:3,max_total_results:9,max_characters:2000}},
+          {type:'function',name:'submit_priority',description:'Submit the final task priority and evidence. Call once, after any necessary searches.',strict:true,parameters:priorityResponseSchema(schema)},
+        ]:[],
         ...(job.webSearch?{stop_server_tools_when:[{type:'step_count_is',step_count:webLimits.queries - 1}]}:{}),
       })
       diagnostics.phase='response'
@@ -213,7 +239,7 @@ export function launchOpenRouter(directory,{env=process.env,fetchImpl=(input, in
       if(data?.status==='incomplete')throw failure('OPENROUTER_INCOMPLETE')
       if(data?.status!=='completed'||!Array.isArray(data.output))throw failure('OPENROUTER_RESPONSE')
       diagnostics.phase='parse'
-      const {parsed,parts}=finalJson(data,diagnostics)
+      const {parsed,parts}=finalJson(data,diagnostics,job.webSearch)
       diagnostics.phase='schema'
       const checked=schema.safeParse(parsed)
       if(!checked.success)throw failure('OPENROUTER_SCHEMA',{schemaIssueCount:checked.error.issues.length,schemaIssues:checked.error.issues.map(issue=>({field:issue.path.join('.'),code:issue.code}))})

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { fetchBoard } from './portal-session'
 
 /** Bounded optional clarification. Typing and saving never wait for the model. */
-export function useInboxClarification(title:string,body:string) {
+export function useInboxClarification(title:string,body:string,enabled=false) {
   const [question,setQuestion]=useState<{text:string;title:string}|null>(null)
   const [answer,setAnswer]=useState('')
   const [revision,setRevision]=useState(0)
@@ -14,7 +14,7 @@ export function useInboxClarification(title:string,body:string) {
   useEffect(()=>()=>{generation.current++;controller.current?.abort()},[])
   useEffect(()=>{
     const key=JSON.stringify([title,body])
-    if(skipped.current||controller.current||attempts.current>=3||title.trim().length<12||lastAttempt.current===key||question?.title===title)return
+    if(!enabled||skipped.current||controller.current||attempts.current>=3||title.trim().length<12||lastAttempt.current===key||question?.title===title)return
     const timer=setTimeout(async()=>{
       const version=generation.current
       const abort=new AbortController();controller.current=abort
@@ -34,7 +34,7 @@ export function useInboxClarification(title:string,body:string) {
     },400)
     // Let an in-flight request finish; coalesce new keystrokes into the next attempt.
     return()=>clearTimeout(timer)
-  },[title,body,question,revision])
+  },[title,body,question,revision,enabled])
   const current=question?.title===title?question.text:null
   function skip(){skipped.current=true;generation.current++;controller.current?.abort();controller.current=null;setQuestion(null);setAnswer('')}
   function reset(){skip();skipped.current=false;attempts.current=0;lastAttempt.current=''}

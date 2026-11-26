@@ -35,15 +35,43 @@ export function safeOpenRouterDiagnostics(value={}) {
     phase:['prepare','budget','generation','response','parse','schema','validation'],
     responseStatus:['completed','incomplete','failed','cancelled','queued','in_progress'],
     incompleteReason:['max_output_tokens','content_filter'],
+    parseIssue:['no_final_message','empty_text','invalid_content','refusal','unfinished_message','markdown','non_json','invalid_json'],
     networkCode:[...networkCodes],validationCode:[...validationCodes],
   }))if(allowed.includes(value?.[key]))result[key]=value[key]
-  for(const key of ['elapsedMs','httpStatus','outputTokens','schemaIssueCount']){
+  for(const key of ['elapsedMs','httpStatus','outputTokens','schemaIssueCount','reasoningTokens','outputItems','assistantMessages','textParts','answerBytes']){
     const n=value?.[key]
     if(Number.isSafeInteger(n)&&n>=0&&n<=1e9&&(key!=='httpStatus'||n>=100&&n<=599))result[key]=n
   }
   if(Array.isArray(value?.schemaIssues))result.schemaIssues=value.schemaIssues.slice(0,5).flatMap(issue=>
     schemaIssueCodes.has(issue?.code)?[{field:schemaFields.has(issue.field)?issue.field:'other',code:issue.code}]:[])
   return result
+}
+
+// Tool runs can include intermediate assistant messages. Read only the terminal
+// message; never salvage JSON from an earlier turn when the final answer failed.
+function finalJson(data,diagnostics) {
+  const output=data.output
+  const messages=output.filter(i=>i?.type==='message'&&i.role==='assistant')
+  const parts=messages.flatMap(i=>Array.isArray(i.content)?i.content:[]).filter(p=>p?.type==='output_text')
+  Object.assign(diagnostics,safeOpenRouterDiagnostics({outputItems:output.length,assistantMessages:messages.length,textParts:parts.length,
+    reasoningTokens:data.usage?.output_tokens_details?.reasoning_tokens}))
+  const reject=issue=>{diagnostics.parseIssue=issue;throw failure('OPENROUTER_JSON')}
+  const last=output.at(-1)
+  if(last?.type!=='message'||last.role!=='assistant'||last.phase==='commentary')reject('no_final_message')
+  if(last.status!==undefined&&last.status!=='completed')reject('unfinished_message')
+  if(!Array.isArray(last.content))reject('invalid_content')
+  if(last.content.some(p=>p?.type==='refusal'))reject('refusal')
+  if(last.content.some(p=>p?.type!=='output_text'||typeof p.text!=='string'))reject('invalid_content')
+  const answer=last.content.map(p=>p.text).join('')
+  diagnostics.answerBytes=Buffer.byteLength(answer)
+  if(diagnostics.answerBytes>64000)throw failure('OPENROUTER_RESPONSE_SIZE')
+  if(!answer.trim())reject('empty_text')
+  let parsed
+  try{parsed=JSON.parse(answer)}catch{
+    const start=answer.trimStart()
+    reject(start.startsWith('```')?'markdown':start.startsWith('{')||start.startsWith('[')?'invalid_json':'non_json')
+  }
+  return {parsed,parts}
 }
 const errorMessages={
   OPENROUTER_CONFIG:'OpenRouter не настроен. Проверьте серверный ключ, модель и лимиты.',
@@ -184,12 +212,8 @@ export function launchOpenRouter(directory,{env=process.env,fetchImpl=(input, in
       if(data?.error||data?.status==='failed')throw failure('OPENROUTER_PROVIDER')
       if(data?.status==='incomplete')throw failure('OPENROUTER_INCOMPLETE')
       if(data?.status!=='completed'||!Array.isArray(data.output))throw failure('OPENROUTER_RESPONSE')
-      const parts=data.output.filter(i=>i.type==='message'&&i.role==='assistant').flatMap(i=>i.content??[]).filter(p=>p.type==='output_text')
-      const answer=parts.map(p=>p.text).join('')
-      if(Buffer.byteLength(answer)>64000)throw failure('OPENROUTER_RESPONSE_SIZE')
       diagnostics.phase='parse'
-      let parsed
-      try{parsed=JSON.parse(answer)}catch{throw failure('OPENROUTER_JSON')}
+      const {parsed,parts}=finalJson(data,diagnostics)
       diagnostics.phase='schema'
       const checked=schema.safeParse(parsed)
       if(!checked.success)throw failure('OPENROUTER_SCHEMA',{schemaIssueCount:checked.error.issues.length,schemaIssues:checked.error.issues.map(issue=>({field:issue.path.join('.'),code:issue.code}))})

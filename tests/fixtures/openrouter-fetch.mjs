@@ -15,6 +15,7 @@ globalThis.fetch = async (url, options = {}) => {
     ] }] })
   }
   if (process.env.FUNBAN_TEST_OPENROUTER_FAILURE === 'incomplete') return Response.json({status:'incomplete',incomplete_details:{reason:'max_output_tokens'},private:'synthetic-secret',usage:{output_tokens:4096}})
+  if (process.env.FUNBAN_TEST_OPENROUTER_FAILURE === 'json') return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'synthetic-secret'}]}],usage:{output_tokens:4740,output_tokens_details:{reasoning_tokens:4000}}})
   const marker = '## Шаблон ответа\n'
   const result = JSON.parse(input.slice(input.lastIndexOf(marker) + marker.length))
   Object.assign(result.recommendation, {
@@ -26,7 +27,7 @@ globalThis.fetch = async (url, options = {}) => {
     regionalApplicability: { status: 'unknown', summary: 'Внутренняя задача.', sourceUrls: [] }, relatedTasks: [],
   })
   result.searchOutcome = 'not_needed'; result.sources = []
-  return Response.json({ status: 'completed', output: [{ type: 'message', role: 'assistant', content: [
+  return Response.json({ status: 'completed', output: [{type:'message',role:'assistant',content:[{type:'output_text',text:'Проверю контекст задачи.'}]}, { type: 'message', role: 'assistant', content: [
     { type: 'output_text', text: JSON.stringify(result), annotations: [] },
   ] }], usage: { input_tokens: 100, output_tokens: 100, server_tool_use_details: { web_search_requests: 0, tool_calls_executed: 0 } } })
 }

@@ -129,6 +129,25 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   assert.equal(JSON.stringify(archive).includes('synthetic-secret'), false)
   await stop(); await start()
   assert.deepEqual((await (await request(endpoint)).json()).job.failure, failed.failure)
+  await stop(); env.FUNBAN_TEST_OPENROUTER_FAILURE = 'json'; await start()
+  assert.equal((await request(endpoint, { ...input, requestId: crypto.randomUUID() })).status, 200)
+  for (let attempt = 0; attempt < 100; attempt++) {
+    failed = (await (await request(endpoint)).json()).job
+    if (failed?.status === 'failed') break
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  assert.equal(failed.failure.code, 'OPENROUTER_JSON')
+  assert.equal(failed.failure.parseIssue, 'non_json')
+  assert.equal(failed.failure.answerBytes, 16)
+  assert.equal(failed.failure.reasoningTokens, 4000)
+  assert.equal(failed.failure.assistantMessages, 1)
+  assert.equal(JSON.stringify(failed).includes('synthetic-secret'), false)
+  assert.deepEqual((await (await request('/api/state')).json()).items[0], beforeFailure)
+  const jsonArchive = JSON.parse(await fs.readFile(path.join(dir, 'state.json.trendwatch', failed.id, 'job.json'), 'utf8'))
+  assert.equal(jsonArchive.errorDiagnostics.parseIssue, 'non_json')
+  assert.equal(JSON.stringify(jsonArchive).includes('synthetic-secret'), false)
+  await stop(); await start()
+  assert.deepEqual((await (await request(endpoint)).json()).job.failure, failed.failure)
   // Runtime switch disables new launches without deleting the saved analysis.
   await stop(); env.FUNBAN_TRENDWATCH_ENABLED = '0'; await start()
   assert.equal((await (await request(endpoint)).json()).available, false)

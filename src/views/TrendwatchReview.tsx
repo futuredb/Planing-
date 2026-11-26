@@ -8,6 +8,7 @@ import type { Item } from '../types'
 import { Icon } from '../ui/Icon'
 
 const headers={'Content-Type':'application/json'}
+const failurePhases:Record<string,string>={prepare:'Подготовка анализа',budget:'Проверка бюджета ключа',generation:'Запрос к модели',response:'Проверка завершения ответа',parse:'Чтение JSON',schema:'Проверка формата оценки',validation:'Проверка источников и согласованности'}
 const verdicts={recommend:'Рекомендую',clarify:'Стоит уточнить',defer:'Пока отложить'}
 const plainSummary=(text:string)=>text.replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g,'$1').replace(/\s*\[\d+(?:[,–-]\s*\d+)*\]/g,'').replace(/https?:\/\/\S+/g,'').trim()
 const lanes={inbox:'На разбор',backlog:'В бэклоге',todo:'В спринте',doing:'В работе',done:'Выполнено',archive:'В архиве'}
@@ -150,6 +151,21 @@ export function TrendwatchReview({item,onOpen,preview=false,refreshKey=''}:{item
     {connection?.available&&unsupportedMode?<p className="research-muted">Оценка бэклога недоступна в текущем режиме сервера.</p>:null}
     {running?<div className="research-quick-actions" role="status"><span>{job?.status==='waiting'?'Ожидает завершения предыдущего разбора…':job?.webSearch?'Оцениваем задачу; при необходимости проверяем рынок…':'Сравниваем с задачами и готовим короткий вывод…'}</span><button type="button" className="text-button" disabled={busy} onClick={()=>void action(async()=>{setJob(await researchRequest<ResearchJob>(item.id,'',{method:'DELETE',headers,body:JSON.stringify({jobId:job!.id})}))})}>Отменить</button></div>:null}
     {job&&!running&&job.status!=='ready'?<p className="research-muted" role="status">{job.message||'Рекомендация не готова. Можно повторить запуск или оценить вручную.'}</p>:null}
+    {job?.status==='failed'&&job.failure?<details className="research-muted">
+      <summary>Детали ошибки</summary>
+      <p>Код: {job.failure.code}<br/>Этап: {failurePhases[job.failure.phase??'']??'Не сохранён'}
+        {job.failure.elapsedMs!==undefined?<><br/>Длительность: {Math.ceil(job.failure.elapsedMs/1000)} сек.</>:null}
+        {job.failure.httpStatus!==undefined?<><br/>HTTP: {job.failure.httpStatus}</>:null}
+        {job.failure.networkCode?<><br/>Сеть: {job.failure.networkCode}</>:null}
+        {job.failure.responseStatus?<><br/>Статус ответа: {job.failure.responseStatus}</>:null}
+        {job.failure.incompleteReason?<><br/>Причина: {job.failure.incompleteReason==='max_output_tokens'?'Достигнут лимит выходных токенов':'Ответ остановлен фильтром содержимого'}</>:null}
+        {job.failure.validationCode?<><br/>Проверка: {job.failure.validationCode}</>:null}
+        {job.failure.outputTokens!==undefined?<><br/>Выходных токенов: {job.failure.outputTokens}</>:null}
+        {job.failure.schemaIssueCount!==undefined?<><br/>Нарушений формата: {job.failure.schemaIssueCount}</>:null}
+        {job.failure.schemaIssues?.map((issue,index)=><span key={index}><br/>{issue.field}: {issue.code}</span>)}
+        <br/>Запуск: <span style={{overflowWrap:'anywhere'}}>{job.id}</span>
+      </p>
+    </details>:null}
     {pendingReview?<p className="priority-review-alert" role="status">Нужен пересмотр. Сохранённые балл и стопка остаются решением лида.</p>:null}
     {connection?.review?.reason==='overdue'?<p className="research-muted">Задача возвращена в «Не разобрано»: срок пересмотра просрочен на 14 дней.{connection.review.previousBucket?` Прежняя стопка: ${matrixOptions.find(o=>o.value===connection.review?.previousBucket)?.label}.`:''}</p>:null}
     {reviewDue?<p className="research-notice" role="status">Пора пересмотреть: оценке больше 30 дней. Сохранённый балл не изменён.</p>:null}

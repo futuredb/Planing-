@@ -159,7 +159,7 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
     await new Promise(resolve => setTimeout(resolve, 50))
   }
   assert.equal(failed.failure.code, 'OPENROUTER_SCHEMA')
-  assert.equal(failed.failure.answerFormat, 'function_call')
+  assert.equal(failed.failure.answerFormat, 'message')
   assert.equal(failed.failure.schemaIssueCount, 6)
   assert.deepEqual(failed.failure.schemaIssues, [0,1,2].flatMap(i=>[
     {field:`sources.${i}.relevance`,code:'invalid_value'}, {field:`sources.${i}`,code:'unrecognized_keys'},

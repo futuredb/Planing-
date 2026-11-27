@@ -6,7 +6,7 @@ import path from 'node:path'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { launchOpenRouter, openRouterConfig, safeOpenRouterDiagnostics } from '../trendwatch-openrouter.mjs'
-import { quickHash } from '../trendwatch-quick.mjs'
+import { quickHash, quickPacket } from '../trendwatch-quick.mjs'
 import { fetchOpenRouter } from '../openrouter-fetch.mjs'
 const env={OPENROUTER_API_KEY:'synthetic-secret',FUNBAN_OPENROUTER_MODEL:'test/model'}
 const job={id:'11111111-1111-4111-8111-111111111111',format:'quick-v1',webSearch:true,createdAt:Date.now(),priorityPolicy:'concept-mvp-v1',evidencePolicy:'adaptive-signals-v4',snapshot:{title:'Автоматизировать сбор материалов',body:'Экономия 2 часа в неделю.',criteria:[]},boardContext:{total:0,items:[]},comparisonContext:{items:[]}}
@@ -28,12 +28,16 @@ test('route is fixed before analysis in inbox and backlog; tool access follows i
   assert.equal(result.type,'review')
   assert.equal(x.requests.length,3)
   const route=x.requests[1].body,analysis=x.requests[2].body
+  // The same priority guidance must reach the provider for both lanes and
+  // both research and no-search routes. Responses above are synthetic.
+  assert.equal(analysis.input,quickPacket(task,[]))
+  for(const rule of ['Не требуй завершённого A/B-теста','Чужой эффект не является прогнозом нашего эффекта','Не назначай автоматический потолок балла','Общее «обе задачи полезны» не обосновывает равенство'])assert.ok(analysis.input.includes(rule),rule)
   assert.equal(route.text.format.name,'funban_route');assert.deepEqual(route.tools,[])
   assert.match(route.input,/Подтверждённая экономия/)
   assert.equal(analysis.tools.some(tool=>tool.type==='openrouter:web_search'),research)
   const schema=research?analysis.tools.find(tool=>tool.name==='submit_priority').parameters:analysis.text.format.schema
   assert.equal(schema.properties.recommendation.properties.assessmentKind.const,kind)
-  assert.ok(200+analysis.max_output_tokens<=4096)
+  assert.equal(200+analysis.max_output_tokens,8192)
  }
 })
 function response(answer=review,annotations=[],count=0){return {status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify(answer),annotations}]}],usage:{input_tokens:100,output_tokens:200,server_tool_use_details:{web_search_requests:count,tool_calls_executed:count}}}}
@@ -68,7 +72,7 @@ test('internal review: bounded request, no observed searches, credentials only i
  const request=x.requests[2]
  assert.equal(request.url,'https://openrouter.ai/api/v1/responses')
  assert.equal(request.options.redirect,'error');assert.equal(request.body.store,false)
- assert.equal(request.body.max_output_tokens,3896)
+ assert.equal(request.body.max_output_tokens,7992)
  assert.equal(request.body.stop_server_tools_when,undefined)
  assert.deepEqual(request.body.tools,[])
  assert.equal(request.body.text.format.schema.properties.recommendation.properties.assessmentKind.const,'internal_improvement')
@@ -103,6 +107,16 @@ test('analysis cannot change the selected kind or skip research after a research
  const research={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'insufficient'}
  const r=await fixture(t,{routeKind:'approach_research',answer:response(research)}).result
  assert.equal(r.code,'OPENROUTER_VALIDATION') // A research label cannot invent an actual search.
+})
+test('explicit token limits are preserved; routing leaves the remainder for analysis',async t=>{
+ assert.equal(openRouterConfig(env).maxTokens,8192)
+ for(const maxTokens of [4096,8192]){
+  const x=fixture(t,{config:{...env,FUNBAN_OPENROUTER_MAX_TOKENS:String(maxTokens)}})
+  assert.equal((await x.result).type,'review')
+  assert.equal(x.requests[1].body.max_output_tokens,1024)
+  assert.equal(x.requests[2].body.max_output_tokens,maxTokens-200)
+  assert.equal(x.requests.length,3) // Budget check, routing, analysis; no paid retry.
+ }
 })
 test('unknown routing usage reserves its full allowance; small budgets remain bounded',async t=>{
  for(const maxTokens of [512,4096,8192]){
@@ -413,7 +427,7 @@ test('search request submits its final review through a strict function with the
  assert.equal(tool.parameters.properties.sources.items.additionalProperties,false)
  assert.equal(body.text,undefined)
  assert.match(body.instructions,/submit_priority/)
- assert.equal(body.max_output_tokens,3896)
+ assert.equal(body.max_output_tokens,7992)
  assert.equal(x.requests.length,3) // Budget + routing + analysis; no repair calls.
 })
 

@@ -11,7 +11,7 @@ const endpoint='https://openrouter.ai/api/v1'
 const failure=(code,diagnostics={})=>Object.assign(new Error(code),{code,diagnostics})
 export function openRouterConfig(env=process.env){
   const apiKey=env.OPENROUTER_API_KEY?.trim(),model=env.FUNBAN_OPENROUTER_MODEL?.trim()
-  const maxTokens=Number(env.FUNBAN_OPENROUTER_MAX_TOKENS||4096)
+  const maxTokens=Number(env.FUNBAN_OPENROUTER_MAX_TOKENS||8192)
   const timeoutMs=Number(env.FUNBAN_OPENROUTER_TIMEOUT_MS||180000)
   const maxKeyLimit=Number(env.FUNBAN_OPENROUTER_MAX_KEY_LIMIT_USD||5)
   if(!apiKey||!model||!/^[-\w.]+\/[-\w.:]+$/.test(model)||model.endsWith(':online')||model==='openrouter/auto')throw failure('OPENROUTER_CONFIG')

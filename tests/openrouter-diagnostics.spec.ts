@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { createSeed } from '../src/seed'
 
-for (const kind of ['incomplete', 'json', 'schema', 'routing', 'regional']) test(`AI ${kind} failure details remain readable without replacing the saved score`, async ({ page }, info) => {
+for (const kind of ['incomplete', 'json', 'schema', 'routing', 'regional', 'source']) test(`AI ${kind} failure details remain readable without replacing the saved score`, async ({ page }, info) => {
   const seed = createSeed()
   const item = { ...seed.items[0], id: 'diagnostic-task', title: 'Проверка диагностики', body: 'Синтетическая задача.', lane: 'backlog' as const,
     matrixBucket: 'research-next' as const, priorityScore: 4, parentId: null, sprintId: null, relatedIds: [], attachments: [], stickers: [] }
@@ -11,8 +11,8 @@ for (const kind of ['incomplete', 'json', 'schema', 'routing', 'regional']) test
     available: true, mode: 'openrouter', automatic: false, configurationMessage: null,
     job: { id: '11111111-1111-4111-8111-111111111111', itemId: item.id, mode: 'openrouter', status: 'failed', stage: 'prioritizing',
       createdAt: Date.now(), stale: false, snapshot: { ...item, criteria: seed.criteria }, recommendation: null, evidence: [], decision: null,
-      message: (kind==='routing'||kind==='regional')?'Ответ модели отклонён проверкой источников, контекста или согласованности оценки. Сохранённая оценка не изменена.':kind==='schema'?'Структура или значения ответа модели не соответствуют формату оценки. Сохранённая оценка не изменена.':kind==='json'?'Ответ модели не удалось прочитать как JSON. Сохранённая оценка не изменена.':'Модель не завершила ответ. Сохранённая оценка не изменена.',
-      failure: kind==='regional'?{code:'OPENROUTER_VALIDATION',phase:'validation',validationCode:'INVALID_REGIONAL_EVIDENCE',regionalIssues:['source_not_listed','supported_without_source']}:kind==='routing'?{code:'OPENROUTER_VALIDATION',phase:'validation',validationCode:'INTERNAL_SEARCH_FORBIDDEN',selectedKind:'internal_improvement',assessmentKind:'internal_improvement',searchOutcome:'insufficient',webCalls:0,webQueries:0,sourceCount:0,routingIssues:['outcome_requires_search']}:kind==='schema'?{code:'OPENROUTER_SCHEMA',phase:'schema',answerFormat:'function_call',schemaIssueCount:6,schemaIssues:[0,1,2].flatMap(i=>[{field:`sources.${i}.relevance`,code:'invalid_value'},{field:`sources.${i}`,code:'unrecognized_keys'}])}:kind==='json'?{code:'OPENROUTER_JSON',phase:'parse',elapsedMs:50000,responseStatus:'completed',outputTokens:4740,parseIssue:'invalid_json',reasoningTokens:4000,outputItems:4,assistantMessages:2,textParts:3,answerBytes:10000}:{ code: 'OPENROUTER_INCOMPLETE', phase: 'response', elapsedMs: 18000, responseStatus: 'incomplete', incompleteReason: 'max_output_tokens', outputTokens: 4096 },
+      message: (kind==='routing'||kind==='regional'||kind==='source')?'Ответ модели отклонён проверкой источников, контекста или согласованности оценки. Сохранённая оценка не изменена.':kind==='schema'?'Структура или значения ответа модели не соответствуют формату оценки. Сохранённая оценка не изменена.':kind==='json'?'Ответ модели не удалось прочитать как JSON. Сохранённая оценка не изменена.':'Модель не завершила ответ. Сохранённая оценка не изменена.',
+      failure: kind==='source'?{code:'OPENROUTER_VALIDATION',phase:'validation',validationCode:'UNKNOWN_WEB_SOURCE',sourceCount:3,searchResultUrlCount:9,citationUrlCount:0,verifiedUrlCount:9,sourceIssues:[{index:2,reason:'not_in_search_results'},{index:3,reason:'duplicate_source'}]}:kind==='regional'?{code:'OPENROUTER_VALIDATION',phase:'validation',validationCode:'INVALID_REGIONAL_EVIDENCE',regionalIssues:['source_not_listed','supported_without_source']}:kind==='routing'?{code:'OPENROUTER_VALIDATION',phase:'validation',validationCode:'INTERNAL_SEARCH_FORBIDDEN',selectedKind:'internal_improvement',assessmentKind:'internal_improvement',searchOutcome:'insufficient',webCalls:0,webQueries:0,sourceCount:0,routingIssues:['outcome_requires_search']}:kind==='schema'?{code:'OPENROUTER_SCHEMA',phase:'schema',answerFormat:'function_call',schemaIssueCount:6,schemaIssues:[0,1,2].flatMap(i=>[{field:`sources.${i}.relevance`,code:'invalid_value'},{field:`sources.${i}`,code:'unrecognized_keys'}])}:kind==='json'?{code:'OPENROUTER_JSON',phase:'parse',elapsedMs:50000,responseStatus:'completed',outputTokens:4740,parseIssue:'invalid_json',reasoningTokens:4000,outputItems:4,assistantMessages:2,textParts:3,answerBytes:10000}:{ code: 'OPENROUTER_INCOMPLETE', phase: 'response', elapsedMs: 18000, responseStatus: 'incomplete', incompleteReason: 'max_output_tokens', outputTokens: 4096 },
     },
   } }))
   await page.goto('/')
@@ -21,7 +21,12 @@ for (const kind of ['incomplete', 'json', 'schema', 'routing', 'regional']) test
   const dialog = page.getByRole('dialog', { name: 'Рекомендация ИИ', exact: true })
   await expect(dialog).toContainText('Сохранённая оценка не изменена.')
   await dialog.getByText('Детали ошибки', { exact: true }).click()
-  if(kind==='regional'){
+  if(kind==='source'){
+    await expect(dialog).toContainText('Адресов в результатах поиска: 9')
+    await expect(dialog).toContainText('Адресов в цитатах провайдера: 0')
+    await expect(dialog).toContainText('Источник №2: Ссылка не найдена в результатах поиска или цитатах провайдера')
+    await expect(dialog).toContainText('Источник №3: Повторяется ссылка на тот же источник')
+  }else if(kind==='regional'){
     await expect(dialog).toContainText('Ссылка в выводе о РФ отсутствует среди источников ответа')
     await expect(dialog).toContainText('Применимость к РФ объявлена подтверждённой, но источник не указан')
   }else if(kind==='routing'){

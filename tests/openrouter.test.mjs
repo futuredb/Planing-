@@ -154,6 +154,52 @@ test('market research uses provider citations; invented URLs and missing usage a
 test('internal review with a search is rejected, not silently accepted',async t=>{
  assert.equal((await fixture(t,{answer:response(review,[],1)}).result).type,'error')
 })
+test('search result URLs establish provenance without assistant citations, for both answer formats',async t=>{
+ const source={title:'Тест',url:'https://example.com/research',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест',limitation:'Тест'}
+ const answer={...review,searchOutcome:'found',sources:[source],recommendation:{...review.recommendation,assessmentKind:'approach_research'}}
+ // Official Responses SDK: outputwebsearchservertoolitem.action.sources.
+ const search={type:'openrouter:web_search',status:'completed',action:{type:'search',query:'synthetic query',sources:[{type:'url',url:source.url+'#result'}]}}
+ for(const format of [response,submitted]){
+  const data=format(answer,[],3);data.output.unshift(search)
+  const x=fixture(t,{answer:data}),result=await x.result
+  assert.equal(result.type,'review')
+  assert.deepEqual(result.web,{calls:3,queries:3,urls:[source.url]})
+  assert.equal(x.requests.length,3) // No extra search, model or repair request.
+ }
+})
+test('source provenance rejects unverified envelopes, fabricated pages and duplicate sources without retries',async t=>{
+ const source={title:'Тест',url:'https://example.com/research',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест',limitation:'Тест'}
+ const answer={...review,searchOutcome:'found',sources:[source],recommendation:{...review.recommendation,assessmentKind:'approach_research'}}
+ const search={type:'openrouter:web_search',status:'completed',action:{type:'search',query:'synthetic query',sources:[{type:'url',url:source.url}]}}
+ const variants=[
+  {...search,status:'failed'}, {...search,status:'in_progress'}, {...search,status:undefined}, {...search,error:'private provider error'},
+  {...search,type:'untrusted_tool'}, {...search,action:{...search.action,type:'unknown'}},
+  {...search,action:{...search.action,sources:[],query:source.url}},
+  {...search,action:{...search.action,sources:[{type:'text',url:source.url}]}},
+  {...search,action:{...search.action,sources:[{type:'url',url:source.url+'?other=1'}]}},
+  {...search,action:{...search.action,sources:[{type:'url',url:source.url+'/other'}]}},
+  {...search,action:{...search.action,sources:[{type:'url',url:'http://localhost/private'}]}},
+ ]
+ for(const item of variants){
+  const data=submitted(answer,[],1);data.output.unshift(item)
+  const x=fixture(t,{answer:data}),r=await x.result
+  assert.equal(r.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
+  assert.deepEqual(r.diagnostics.sourceIssues,[{index:1,reason:'not_in_search_results'}])
+  assert.equal(x.requests.length,3)
+  assert.equal(JSON.stringify(r).includes('https://'),false)
+  assert.equal(JSON.stringify(r).includes('private'),false)
+ }
+ const duplicate={...answer,sources:[source,{...source,url:source.url+'#duplicate'}]}
+ const data=submitted(duplicate,[{type:'url_citation',url:source.url}],1);data.output.unshift(search)
+ const x=fixture(t,{answer:data}),r=await x.result
+ assert.equal(r.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
+ assert.deepEqual(r.diagnostics.sourceIssues,[{index:2,reason:'duplicate_source'}])
+ assert.equal(r.diagnostics.citationUrlCount,1);assert.equal(r.diagnostics.searchResultUrlCount,1);assert.equal(r.diagnostics.verifiedUrlCount,1)
+ assert.equal(x.requests.length,3)
+ const clean=safeOpenRouterDiagnostics({sourceIssues:[null,{index:1,reason:'not_in_search_results',url:'private'}, {index:-1,reason:'duplicate_source'}, {index:2,reason:'private'}],searchResultUrlCount:NaN,citationUrlCount:-1,verifiedUrlCount:1})
+ assert.deepEqual(clean,{verifiedUrlCount:1,sourceIssues:[{index:1,reason:'not_in_search_results'}]})
+ assert.equal(safeOpenRouterDiagnostics({sourceIssues:Array.from({length:20},()=>({index:1,reason:'duplicate_source'}))}).sourceIssues.length,10)
+})
 test('regional evidence uses provider page identity without accepting fabricated sources or retries',async t=>{
  const source={title:'Синтетический источник',url:'https://example.com/region',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест РФ',limitation:'Синтетический тест'}
  const make=(sourceUrls,status='conditional')=>({...review,searchOutcome:'found',sources:[source],recommendation:{...review.recommendation,assessmentKind:'approach_research',regionalApplicability:{status,summary:'Синтетическое основание.',sourceUrls}}})

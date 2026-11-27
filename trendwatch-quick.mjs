@@ -279,10 +279,16 @@ export function validateQuickReview(raw,job,sources,web=null) {
     if(!web||!Number.isInteger(web.calls)||web.calls<1||web.calls>webLimits.calls||!Number.isInteger(web.queries)||web.queries<1||web.queries>webLimits.queries||!Array.isArray(web.urls)||web.urls.length>100)throw new Error('WEB_SEARCH_NOT_VERIFIED')
     const urls=new Set(web.urls.map(publicWebUrl).filter(Boolean)),used=new Set()
     if(input.searchOutcome==='found'&&!input.sources.length)throw new Error('MISSING_WEB_EVIDENCE')
+    const sourceIssues=[]
+    input.sources.forEach((source,index)=>{
+      const url=publicWebUrl(source.url)
+      if(!urls.has(url))sourceIssues.push({index:index+1,reason:'not_in_search_results'})
+      else if(used.has(url))sourceIssues.push({index:index+1,reason:'duplicate_source'})
+      used.add(url)
+    })
+    if(sourceIssues.length)throw Object.assign(new Error('UNKNOWN_WEB_SOURCE'),{diagnostics:{sourceIssues}})
     const evidence=input.sources.map((source,index)=>{
       const url=publicWebUrl(source.url)
-      if(!urls.has(url)||used.has(url))throw new Error('UNKNOWN_WEB_SOURCE')
-      used.add(url)
       return {id:`W${index+1}`,title:source.title,url,observation:source.signal,quote:'',publishedAt:source.publishedAt,retrievedAt:new Date().toISOString(),...(source.applicability?{applicability:source.applicability,signalType:source.signalType}:{}),...(source.origin?{origin:source.origin,relevance:source.relevance,limitation:source.limitation}:{})}
     })
     return {recommendation:input.recommendation,evidence,searchOutcome:input.searchOutcome,webUsage:{calls:web.calls,queries:web.queries}}

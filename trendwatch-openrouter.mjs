@@ -38,6 +38,7 @@ const nestedSchemaFields = [
 const schemaIssueCodes = new Set(['invalid_type','too_big','too_small','invalid_format','invalid_value','unrecognized_keys','invalid_union','custom'])
 const routingIssues = new Set(['search_performed','outcome_requires_search','sources_supplied'])
 const regionalIssues = new Set(['source_not_listed','supported_without_source'])
+const sourceIssueReasons = new Set(['not_in_search_results','duplicate_source'])
 // Allowlisted scalars only. Never persist error.message, stack, headers or provider bodies.
 export function safeOpenRouterDiagnostics(value={}) {
   const result={}
@@ -52,15 +53,30 @@ export function safeOpenRouterDiagnostics(value={}) {
     searchOutcome:['not_needed','insufficient','found'],
     networkCode:[...networkCodes],validationCode:[...validationCodes],
   }))if(allowed.includes(value?.[key]))result[key]=value[key]
-  for(const key of ['elapsedMs','httpStatus','outputTokens','schemaIssueCount','reasoningTokens','outputItems','assistantMessages','textParts','answerBytes','webCalls','webQueries','sourceCount']){
+  for(const key of ['elapsedMs','httpStatus','outputTokens','schemaIssueCount','reasoningTokens','outputItems','assistantMessages','textParts','answerBytes','webCalls','webQueries','sourceCount','citationUrlCount','searchResultUrlCount','verifiedUrlCount']){
     const n=value?.[key]
     if(Number.isSafeInteger(n)&&n>=0&&n<=1e9&&(key!=='httpStatus'||n>=100&&n<=599))result[key]=n
   }
   if(Array.isArray(value?.routingIssues))result.routingIssues=[...new Set(value.routingIssues.filter(issue=>routingIssues.has(issue)))].slice(0,3)
   if(Array.isArray(value?.regionalIssues))result.regionalIssues=[...new Set(value.regionalIssues.filter(issue=>regionalIssues.has(issue)))].slice(0,2)
+  if(Array.isArray(value?.sourceIssues))result.sourceIssues=value.sourceIssues.slice(0,10).flatMap(issue=>
+    Number.isInteger(issue?.index)&&issue.index>=1&&issue.index<=100&&sourceIssueReasons.has(issue.reason)?[{index:issue.index,reason:issue.reason}]:[])
   if(Array.isArray(value?.schemaIssues))result.schemaIssues=value.schemaIssues.slice(0,10).flatMap(issue=>
     schemaIssueCodes.has(issue?.code)?[{field:typeof issue.field==='string'&&issue.field.length<=120&&(schemaFields.has(issue.field)||nestedSchemaFields.some(pattern=>pattern.test(issue.field)))?issue.field:'other',code:issue.code}]:[])
   return result
+}
+
+// Provider-owned envelopes only; never treat URLs in model text, arguments,
+// arbitrary tool output or search queries as proof of a retrieved page.
+// https://github.com/OpenRouterTeam/typescript-sdk/blob/main/src/models/outputwebsearchservertoolitem.ts
+function searchProvenance(output,parts) {
+  const citations=new Set(parts.flatMap(p=>Array.isArray(p.annotations)?p.annotations:[])
+    .filter(a=>a?.type==='url_citation').map(a=>publicWebUrl(a.url??a.url_citation?.url)).filter(Boolean))
+  const results=new Set(output.filter(item=>item?.type==='openrouter:web_search'&&item.status==='completed'&&!item.error&&item.action?.type==='search')
+    .flatMap(item=>Array.isArray(item.action.sources)?item.action.sources:[])
+    .filter(source=>source?.type==='url').map(source=>publicWebUrl(source.url)).filter(Boolean))
+  const urls=[...new Set([...citations,...results])]
+  return {urls,citationUrlCount:citations.size,searchResultUrlCount:results.size,verifiedUrlCount:urls.length}
 }
 
 // Tool runs can include intermediate assistant messages. Read only the terminal
@@ -298,11 +314,10 @@ export function launchOpenRouter(directory,{env=process.env,fetchImpl=(input, in
       const details=data.usage?.server_tool_use_details
       const queries=details?.web_search_requests??0,calls=details?.tool_calls_executed??queries
       if(!Number.isInteger(queries)||queries<0||queries>webLimits.queries||!Number.isInteger(calls)||calls<queries||calls>webLimits.queries||!searchEnabled&&(queries||calls))throw failure('OPENROUTER_SEARCH_LIMIT')
-      // Only provider annotations establish provenance. URLs in generated JSON do not.
-      const urls=[...new Set(parts.flatMap(p=>p.annotations??[]).filter(a=>a.type==='url_citation').map(a=>publicWebUrl(a.url??a.url_citation?.url)).filter(Boolean))]
-      const web={calls,queries,urls}
+      const provenance=searchProvenance(data.output,parts)
+      const web={calls,queries,urls:provenance.urls}
       Object.assign(diagnostics,safeOpenRouterDiagnostics({assessmentKind:review.recommendation.assessmentKind,
-        searchOutcome:review.searchOutcome,webCalls:calls,webQueries:queries,sourceCount:review.sources?.length}))
+        searchOutcome:review.searchOutcome,webCalls:calls,webQueries:queries,sourceCount:review.sources?.length,...provenance}))
       if(job.webSearch&&['bug','internal_improvement'].includes(review.recommendation.assessmentKind)){
         diagnostics.routingIssues=[...(calls||queries?['search_performed']:[]),
           ...(review.searchOutcome!=='not_needed'?['outcome_requires_search']:[]),

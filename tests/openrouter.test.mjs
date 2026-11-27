@@ -12,6 +12,33 @@ const env={OPENROUTER_API_KEY:'synthetic-secret',FUNBAN_OPENROUTER_MODEL:'test/m
 const job={id:'11111111-1111-4111-8111-111111111111',format:'quick-v1',webSearch:true,createdAt:Date.now(),priorityPolicy:'concept-mvp-v1',evidencePolicy:'adaptive-signals-v4',snapshot:{title:'Автоматизировать сбор материалов',body:'Экономия 2 часа в неделю.',criteria:[]},boardContext:{total:0,items:[]},comparisonContext:{items:[]}}
 job.packetHash=quickHash(job,[])
 const review={jobId:job.id,packetHash:job.packetHash,recommendation:{assessmentKind:'internal_improvement',matrixBucket:'automate',summary:'Экономия 8 часов за четыре недели по данным задачи.',score:7,verdict:'recommend',decisionValue:'Освободить время для концепций.',comparison:{status:'insufficient',itemIds:[],reason:'Нет сравнимых оценок.'},rationale:'Подтверждённая повторная экономия времени.',limitations:'Не известны затраты внедрения.',evidenceStrength:'limited',regionalApplicability:{status:'unknown',summary:'Внутренний инструмент.',sourceUrls:[]},relatedTasks:[]},searchOutcome:'not_needed',sources:[]}
+test('research notes and strict evaluation use separate requests with one output budget',async t=>{
+ const answer={...review,searchOutcome:'insufficient',recommendation:{...review.recommendation,assessmentKind:'approach_research'}}
+ const x=fixture(t,{fetcher:async(url,{body})=>{
+  if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+  const request=JSON.parse(body)
+  if(request.text?.format?.name==='funban_route')return Response.json(response({assessmentKind:'approach_research'}))
+  if(request.tools.some(tool=>tool.type==='openrouter:web_search')){
+   const notes=response(null,[],2)
+   notes.output[0].content[0].text='Поиск завершён. Прямых подтверждений нет. Это не JSON.'
+   return Response.json(notes)
+  }
+  assert.deepEqual(request.tools,[])
+  assert.equal(request.text.format.name,'funban_priority')
+  assert.equal(request.text.format.strict,true)
+  assert.match(request.input,/Прямых подтверждений нет/)
+  return Response.json(response(answer))
+ }})
+ const r=await x.result
+ assert.equal(r.type,'review')
+ assert.equal(x.requests.length,4)
+ const search=x.requests[2].body,final=x.requests[3].body
+ assert.equal(search.tools.length,1)
+ assert.equal(search.text,undefined)
+ assert.ok(search.max_output_tokens<=8192-200-1024)
+ assert.equal(200+200+final.max_output_tokens,8192)
+ assert.equal(r.usage.output_tokens,600)
+})
 test('route is fixed before analysis in inbox and backlog; tool access follows it',async t=>{
  for(const lane of ['inbox','backlog'])for(const kind of ['bug','internal_improvement','market_idea','approach_research']){
   const task={...job,snapshot:{...job.snapshot,lane},commentContext:{items:[{text:'Подтверждённая экономия 2 часа в неделю.'}]}}
@@ -22,32 +49,120 @@ test('route is fixed before analysis in inbox and backlog; tool access follows i
    if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
    const body=JSON.parse(options.body)
    if(body.text?.format?.name==='funban_route')return Response.json(response({assessmentKind:kind}))
-   return Response.json(research?submitted(answer,[],1):response(answer))
+   return Response.json(body.tools.length?response({notes:'Синтетические материалы.'},[],1):response(answer))
   }})
   const result=await x.result
   assert.equal(result.type,'review')
-  assert.equal(x.requests.length,3)
-  const route=x.requests[1].body,analysis=x.requests[2].body
+  assert.equal(x.requests.length,research?4:3)
+  const route=x.requests[1].body,analysis=x.requests.at(-1).body
   // The same priority guidance must reach the provider for both lanes and
   // both research and no-search routes. Responses above are synthetic.
-  assert.equal(analysis.input,quickPacket(task,[]))
+  assert.equal(research?JSON.parse(analysis.input).taskPacket:analysis.input,quickPacket(task,[]))
   for(const rule of ['Не требуй завершённого A/B-теста','Чужой эффект не является прогнозом нашего эффекта','Не назначай автоматический потолок балла','Общее «обе задачи полезны» не обосновывает равенство','Блокировка требует основания в task.body или task.comments','summary, verdict, rationale и score должны описывать одно решение','Для чаевых отделяй долю заказов с чаевыми'])assert.ok(analysis.input.includes(rule),rule)
   assert.equal(route.text.format.name,'funban_route');assert.deepEqual(route.tools,[])
   assert.match(route.input,/Подтверждённая экономия/)
-  assert.equal(analysis.tools.some(tool=>tool.type==='openrouter:web_search'),research)
-  const schema=research?analysis.tools.find(tool=>tool.name==='submit_priority').parameters:analysis.text.format.schema
+  assert.deepEqual(analysis.tools,[])
+  assert.equal(x.requests[2].body.tools.some(tool=>tool.type==='openrouter:web_search'),research)
+  const schema=analysis.text.format.schema
   assert.equal(schema.properties.recommendation.properties.assessmentKind.const,kind)
-  assert.equal(200+analysis.max_output_tokens,8192)
+  assert.equal((research?400:200)+analysis.max_output_tokens,8192)
  }
 })
 function response(answer=review,annotations=[],count=0){return {status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify(answer),annotations}]}],usage:{input_tokens:100,output_tokens:200,server_tool_use_details:{web_search_requests:count,tool_calls_executed:count}}}}
+test('research reserves evaluation budget; absent usage spends the allowance conservatively',async t=>{
+ for(const budget of [512,4096,8192])for(const missing of [false,true]){
+  const answer={...review,searchOutcome:'insufficient',recommendation:{...review.recommendation,assessmentKind:'approach_research'}}
+  const x=fixture(t,{config:{...env,FUNBAN_OPENROUTER_MAX_TOKENS:String(budget)},fetcher:async(url,{body})=>{
+   if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+   const request=JSON.parse(body),route=request.text?.format?.name==='funban_route',search=request.tools.length>0
+   const data=response(route?{assessmentKind:'approach_research'}:search?'Короткие заметки':answer,[],search?1:0)
+   if(missing&&(route||search))delete data.usage.output_tokens
+   else data.usage.output_tokens=10
+   return Response.json(data)
+  }})
+  const result=await x.result
+  assert.equal(result.type,'review')
+  const [,route,search,final]=x.requests.map(r=>r.body)
+  const routed=missing?route.max_output_tokens:10,researched=missing?search.max_output_tokens:10
+  const reserve=Math.min(4096,Math.ceil((budget-routed)*2/3))
+  assert.equal(search.max_output_tokens+reserve,budget-routed)
+  assert.equal(routed+researched+final.max_output_tokens,budget)
+  assert.ok(final.max_output_tokens>=reserve)
+  assert.equal(result.usage.output_tokens,missing?undefined:30)
+  assert.equal(result.usage.server_tool_use_details.web_search_requests,1)
+ }
+})
+test('invalid or unfinished research stops before evaluation without a retry',async t=>{
+ const notes=response('Материалы',[],1)
+ const variants=[
+  [{...notes,status:'incomplete',incomplete_details:{reason:'max_output_tokens'}},'OPENROUTER_INCOMPLETE'],
+  [{...notes,output:[]},'OPENROUTER_RESPONSE'],
+  [{...notes,output:[{type:'message',role:'assistant',content:[{type:'refusal',refusal:'no'}]}]},'OPENROUTER_RESPONSE'],
+  [response('x'.repeat(64001),[],1),'OPENROUTER_RESPONSE_SIZE'],
+  [submitted(review,[],1),'OPENROUTER_RESPONSE'],
+  ...[-1,9000].map(output_tokens=>[{...notes,usage:{...notes.usage,output_tokens}},'OPENROUTER_TOKEN_LIMIT']),
+ ]
+ for(const [searchAnswer,code] of variants){
+  const x=fixture(t,{routeKind:'approach_research',searchAnswer}),result=await x.result
+  assert.equal(result.type,'error');assert.equal(result.code,code)
+  assert.equal(result.diagnostics.phase,'search');assert.equal(x.requests.length,3)
+ }
+})
+test('evaluation cannot introduce new search or use its own citations as research provenance',async t=>{
+ const source={title:'Тест',url:'https://example.com/new',signal:'Факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест',limitation:'Тест'}
+ const answer={...review,searchOutcome:'found',sources:[source],recommendation:{...review.recommendation,assessmentKind:'approach_research'}}
+ for(const searches of [0,1]){
+  const x=fixture(t,{fetcher:async(url,{body})=>{
+   if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+   const request=JSON.parse(body)
+   if(request.text?.format?.name==='funban_route')return Response.json(response({assessmentKind:'approach_research'}))
+   if(request.tools.length)return Response.json(response('Материалы без этой ссылки',[],1))
+   return Response.json(response(answer,[{type:'url_citation',url:source.url}],searches))
+  }})
+  const result=await x.result
+  assert.equal(result.code,searches?'OPENROUTER_SEARCH_LIMIT':'OPENROUTER_VALIDATION')
+  if(!searches)assert.equal(result.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
+  assert.equal(x.requests.length,4)
+ }
+})
+test('cancelling research prevents evaluation even when transport returns late',async t=>{
+ let release,started
+ const ready=new Promise(resolve=>{started=resolve})
+ const x=fixture(t,{fetcher:async(url,{body})=>{
+  if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+  if(JSON.parse(body).text?.format?.name==='funban_route')return Response.json(response({assessmentKind:'approach_research'}))
+  started();await new Promise(resolve=>{release=resolve})
+  return Response.json(response('Материалы',[],1))
+ }})
+ const messages=[];x.child.on('message',m=>messages.push(m))
+ await ready
+ const closed=once(x.child,'close');x.child.kill();release();await closed
+ await new Promise(resolve=>setImmediate(resolve))
+ assert.equal(x.requests.length,3)
+ assert.equal(messages.some(m=>m.type==='review'||m.type==='error'),false)
+})
+test('all stages share one abort signal and deadline; late search and evaluation cannot succeed',async t=>{
+ for(const phase of ['search','generation']){
+  const x=fixture(t,{config:{...env,FUNBAN_OPENROUTER_TIMEOUT_MS:'1000'},fetcher:async(url,{body,signal})=>{
+   if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+   const request=JSON.parse(body)
+   if(request.text?.format?.name==='funban_route')return Response.json(response({assessmentKind:'approach_research'}))
+   if(phase==='search'||!request.tools.length)await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}))
+   return Response.json(response('Поздний ответ',[],request.tools.length?1:0))
+  }})
+  const result=await x.result
+  assert.equal(result.code,'OPENROUTER_TIMEOUT');assert.equal(result.diagnostics.phase,phase)
+  assert.equal(x.requests.length,phase==='search'?3:4)
+  assert.equal(new Set(x.requests.map(r=>r.options.signal)).size,1)
+ }
+})
 function submitted(answer=review,annotations=[],count=0){
  const data=response(answer,annotations,count)
  data.output[0].content[0].text='Источники проверены.'
  data.output.push({type:'function_call',name:'submit_priority',call_id:'test-call',status:'completed',arguments:JSON.stringify(answer)})
  return data
 }
-function fixture(t,{answer=response(),key={limit:5,limit_remaining:5},config=env,fetcher,task=job,routeKind,routeAnswer}={}){
+function fixture(t,{answer=response(),key={limit:5,limit_remaining:5},config=env,fetcher,task=job,routeKind,routeAnswer,searchAnswer}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'openrouter-test-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}))
  fs.writeFileSync(path.join(dir,'job.json'),JSON.stringify(task));fs.writeFileSync(path.join(dir,'materials.json'),JSON.stringify({sources:[]}))
  const requests=[]
@@ -59,7 +174,21 @@ function fixture(t,{answer=response(),key={limit:5,limit_remaining:5},config=env
    try{const last=answer.output.at(-1);kind??=JSON.parse(last.arguments??last.content[0].text).recommendation?.assessmentKind}catch{}
    return Response.json(routeAnswer??response({assessmentKind:kind??'internal_improvement'}))
   }
-  return Response.json(url.endsWith('/key')?{data:key}:answer)
+  if(url.endsWith('/key'))return Response.json({data:key})
+  if(requests.at(-1).body?.tools?.some(tool=>tool.type==='openrouter:web_search')){
+   const notes=structuredClone(answer)
+   notes.output=notes.output.filter(item=>item.type!=='function_call')
+   for(const item of notes.output)if(item.type==='message')for(const part of item.content??[])if(part.type==='output_text')part.text='Синтетические материалы исследования.'
+   return Response.json(searchAnswer??notes)
+  }
+  // Evidence belongs to the search response; final evaluation cannot search.
+  if(requests.some(r=>r.body?.tools?.some(tool=>tool.type==='openrouter:web_search'))){
+   const final=structuredClone(answer)
+   final.output=final.output.filter(item=>item.type!=='openrouter:web_search'&&item.type!=='untrusted_tool')
+   if(final.usage)final.usage.server_tool_use_details={web_search_requests:0,tool_calls_executed:0}
+   return Response.json(final)
+  }
+  return Response.json(answer)
  }})
  const result=new Promise(resolve=>child.on('message',m=>{if(['review','error'].includes(m.type))resolve(m)}))
  return {child,result,requests}
@@ -168,17 +297,17 @@ test('market research uses provider citations; invented URLs and missing usage a
 test('internal review with a search is rejected, not silently accepted',async t=>{
  assert.equal((await fixture(t,{answer:response(review,[],1)}).result).type,'error')
 })
-test('search result URLs establish provenance without assistant citations, for both answer formats',async t=>{
+test('search result URLs establish provenance without assistant citations, for strict evaluation',async t=>{
  const source={title:'Тест',url:'https://example.com/research',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест',limitation:'Тест'}
  const answer={...review,searchOutcome:'found',sources:[source],recommendation:{...review.recommendation,assessmentKind:'approach_research'}}
  // Official Responses SDK: outputwebsearchservertoolitem.action.sources.
  const search={type:'openrouter:web_search',status:'completed',action:{type:'search',query:'synthetic query',sources:[{type:'url',url:source.url+'#result'}]}}
- for(const format of [response,submitted]){
+ for(const format of [response]){
   const data=format(answer,[],3);data.output.unshift(search)
   const x=fixture(t,{answer:data}),result=await x.result
   assert.equal(result.type,'review')
   assert.deepEqual(result.web,{calls:3,queries:3,urls:[source.url]})
-  assert.equal(x.requests.length,3) // No extra search, model or repair request.
+  assert.equal(x.requests.length,4) // No extra search, model or repair request.
  }
 })
 test('source provenance rejects unverified envelopes, fabricated pages and duplicate sources without retries',async t=>{
@@ -195,21 +324,21 @@ test('source provenance rejects unverified envelopes, fabricated pages and dupli
   {...search,action:{...search.action,sources:[{type:'url',url:'http://localhost/private'}]}},
  ]
  for(const item of variants){
-  const data=submitted(answer,[],1);data.output.unshift(item)
+  const data=response(answer,[],1);data.output.unshift(item)
   const x=fixture(t,{answer:data}),r=await x.result
   assert.equal(r.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
   assert.deepEqual(r.diagnostics.sourceIssues,[{index:1,reason:'not_in_search_results'}])
-  assert.equal(x.requests.length,3)
+  assert.equal(x.requests.length,4)
   assert.equal(JSON.stringify(r).includes('https://'),false)
   assert.equal(JSON.stringify(r).includes('private'),false)
  }
  const duplicate={...answer,sources:[source,{...source,url:source.url+'#duplicate'}]}
- const data=submitted(duplicate,[{type:'url_citation',url:source.url}],1);data.output.unshift(search)
+ const data=response(duplicate,[{type:'url_citation',url:source.url}],1);data.output.unshift(search)
  const x=fixture(t,{answer:data}),r=await x.result
  assert.equal(r.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
  assert.deepEqual(r.diagnostics.sourceIssues,[{index:2,reason:'duplicate_source'}])
  assert.equal(r.diagnostics.citationUrlCount,1);assert.equal(r.diagnostics.searchResultUrlCount,1);assert.equal(r.diagnostics.verifiedUrlCount,1)
- assert.equal(x.requests.length,3)
+ assert.equal(x.requests.length,4)
  const clean=safeOpenRouterDiagnostics({sourceIssues:[null,{index:1,reason:'not_in_search_results',url:'private'}, {index:-1,reason:'duplicate_source'}, {index:2,reason:'private'}],searchResultUrlCount:NaN,citationUrlCount:-1,verifiedUrlCount:1})
  assert.deepEqual(clean,{verifiedUrlCount:1,sourceIssues:[{index:1,reason:'not_in_search_results'}]})
  assert.equal(safeOpenRouterDiagnostics({sourceIssues:Array.from({length:20},()=>({index:1,reason:'duplicate_source'}))}).sourceIssues.length,10)
@@ -218,12 +347,12 @@ test('regional evidence uses provider page identity without accepting fabricated
  const source={title:'Синтетический источник',url:'https://example.com/region',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест РФ',limitation:'Синтетический тест'}
  const make=(sourceUrls,status='conditional')=>({...review,searchOutcome:'found',sources:[source],recommendation:{...review.recommendation,assessmentKind:'approach_research',regionalApplicability:{status,summary:'Синтетическое основание.',sourceUrls}}})
  const annotations=[{type:'url_citation',url:source.url+'#provider-fragment'}]
- for(const output of [response,submitted]){
+ for(const output of [response]){
   const answer=make(['https://EXAMPLE.com:443/region#regional-fragment'])
   const x=fixture(t,{answer:output(answer,annotations,3)}),r=await x.result
   assert.equal(r.type,'review')
   assert.equal(r.review.recommendation.score,7)
-  assert.equal(x.requests.length,3) // Budget, routing, analysis; no repair call.
+  assert.equal(x.requests.length,4) // Budget, routing, search, evaluation; no repair call.
   // Service validation returns the normalized evidence; adapter keeps the raw
   // response until that validation and never edits the saved task score.
   for(const [urls,status,issue] of [
@@ -236,7 +365,7 @@ test('regional evidence uses provider page identity without accepting fabricated
    assert.equal(error.diagnostics.validationCode,'INVALID_REGIONAL_EVIDENCE')
    assert.deepEqual(error.diagnostics.regionalIssues,[issue])
    assert.equal(JSON.stringify(error).includes('https://'),false)
-   assert.equal(bad.requests.length,3)
+   assert.equal(bad.requests.length,4)
   }
   const fabricated=await fixture(t,{answer:output(make([source.url]),[],3)}).result
   assert.equal(fabricated.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
@@ -416,27 +545,25 @@ test('intermediate provider citations survive final-message extraction; invented
  }
 })
 
-test('search request submits its final review through a strict function with the complete source schema',async t=>{
+test('evaluation after search uses strict JSON with the complete source schema and no tools',async t=>{
  const answer={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'insufficient'}
- const x=fixture(t,{answer:submitted(answer,[],1)}),r=await x.result
+ const x=fixture(t,{answer:response(answer,[],1)}),r=await x.result
  assert.equal(r.type,'review');assert.equal(r.review.recommendation.score,7)
- const body=x.requests[2].body,tool=body.tools.find(tool=>tool.name==='submit_priority')
- assert.equal(tool.type,'function');assert.equal(tool.strict,true)
- assert.equal(tool.parameters.additionalProperties,false)
- assert.deepEqual(tool.parameters.properties.sources.items.properties.relevance.enum,['direct','analogy'])
- assert.equal(tool.parameters.properties.sources.items.additionalProperties,false)
- assert.equal(body.text,undefined)
- assert.match(body.instructions,/submit_priority/)
- assert.equal(body.max_output_tokens,7992)
- assert.equal(x.requests.length,3) // Budget + routing + analysis; no repair calls.
+ const body=x.requests[3].body,format=body.text.format
+ assert.equal(format.strict,true);assert.deepEqual(body.tools,[])
+ assert.equal(format.schema.additionalProperties,false)
+ assert.deepEqual(format.schema.properties.sources.items.properties.relevance.enum,['direct','analogy'])
+ assert.equal(format.schema.properties.sources.items.additionalProperties,false)
+ assert.equal(body.max_output_tokens,7792)
+ assert.equal(x.requests.length,4) // Budget + routing + search + evaluation; no repair.
 })
 
-test('submitted market reviews still require provider citations and measured search usage',async t=>{
+test('market reviews after search still require provider citations and measured search usage',async t=>{
  const source={title:'Синтетический источник',url:'https://example.com/market',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест рынка',limitation:'Синтетический тест'}
  const market={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'found',sources:[source]}
  for(const [cited,count,expected] of [[true,2,'review'],[false,2,'error'],[true,0,'error'],[true,4,'error']]){
-  const x=fixture(t,{answer:submitted(market,cited?[{type:'url_citation',url:source.url}]:[],count)})
-  assert.equal((await x.result).type,expected);assert.equal(x.requests.length,3)
+  const x=fixture(t,{answer:response(market,cited?[{type:'url_citation',url:source.url}]:[],count)})
+  assert.equal((await x.result).type,expected);assert.equal(x.requests.length,count>3?3:4)
  }
 })
 
@@ -448,18 +575,18 @@ test('invalid or ambiguous submission never falls back to earlier valid JSON or 
   [{...valid,arguments:'{"secret":"synthetic-secret"'}],
   [valid,...response().output],
  ]){
-  const x=fixture(t,{routeKind:'approach_research',answer:{...response(),output:[...response().output,...calls]}}),r=await x.result
+  const x=fixture(t,{routeKind:'approach_research',searchAnswer:response({notes:'Нет оснований.'},[],1),answer:{...response(),output:[...response().output,...calls]}}),r=await x.result
   assert.equal(r.type,'error');assert.equal(r.code,'OPENROUTER_JSON')
   assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
   assert.equal(JSON.stringify(r).includes('private-function'),false)
-  assert.equal(x.requests.length,3)
+  assert.equal(x.requests.length,4)
  }
 })
 
 test('all six nested source violations remain visible without exposing values or extra keys',async t=>{
  const source={title:'Test',url:'https://example.com',signal:'Test',publishedAt:null,origin:'Test',relevance:'synthetic-secret',applicability:'Test',limitation:'Test','private-key':'synthetic-secret'}
  const bad={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'found',sources:[source,source,source]}
- for(const answer of [response(bad),submitted(bad)]){
+ for(const answer of [response(bad)]){
   const x=fixture(t,{answer}),r=await x.result
   assert.equal(r.code,'OPENROUTER_SCHEMA')
   assert.equal(r.diagnostics.schemaIssueCount,6)

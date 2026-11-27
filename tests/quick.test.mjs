@@ -144,6 +144,14 @@ test('concept MVP: multiple signals keep applicability, duplicates/analogies can
  regionalJob.packetHash=quickHash(regionalJob,[])
  const checkRegional=region=>validateQuickReview({...raw,packetHash:regionalJob.packetHash,recommendation:{...raw.recommendation,regionalApplicability:region}},regionalJob,[],web)
  assert.deepEqual(checkRegional(regional).recommendation.regionalApplicability,regional)
+ // The provider-source check already treats fragments and URL host casing as
+ // the same page. Regional references must use the same identity rules.
+ const equivalent={...regional,sourceUrls:['https://EXAMPLE.com:443/0#findings']}
+ assert.deepEqual(checkRegional(equivalent).recommendation.regionalApplicability.sourceUrls,[sources[0].url])
+ assert.deepEqual(equivalent.sourceUrls,['https://EXAMPLE.com:443/0#findings'])
+ for(const url of ['http://example.com/0','https://example.com/0/','https://example.com/0?edition=2','https://elsewhere.example.com/0','https://user:password@example.com/0']){
+  assert.throws(()=>checkRegional({...regional,sourceUrls:[url]}),/INVALID_REGIONAL_EVIDENCE/)
+ }
  for(const invalid of [{...regional,status:'supported',sourceUrls:[]},{...regional,sourceUrls:['https://example.com/not-observed']}])assert.throws(()=>checkRegional(invalid),/INVALID_REGIONAL_EVIDENCE/)
  assert.throws(()=>checkRegional(undefined))
  const {quickSchema}=await import('../trendwatch-quick.mjs'),{z}=await import('zod')

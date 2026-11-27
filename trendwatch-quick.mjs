@@ -238,8 +238,16 @@ export function validateQuickReview(raw,job,sources,web=null) {
     const regional=input.recommendation.regionalApplicability
     if(['regional-signals-v1','regional-signals-v2','regional-signals-v3','regional-signals-v4'].includes(job.evidencePolicy)&&!regional)throw new Error('MISSING_REGIONAL_ASSESSMENT')
     if(regional){
-      const urls=new Set((input.sources??[]).map(s=>s.url))
-      if(regional.sourceUrls.some(url=>!urls.has(url))||regional.status==='supported'&&!regional.sourceUrls.length)throw new Error('INVALID_REGIONAL_EVIDENCE')
+      // Use the same page identity as the provider-citation check below. Only
+      // URL syntax/fragment normalization is allowed; never guess redirects,
+      // strip query parameters or substitute a different page on the same host.
+      const urls=new Set((input.sources??[]).map(s=>publicWebUrl(s.url)).filter(Boolean))
+      const references=regional.sourceUrls.map(publicWebUrl)
+      const regionalIssues=[]
+      if(references.some(url=>!url||!urls.has(url)))regionalIssues.push('source_not_listed')
+      if(regional.status==='supported'&&!references.length)regionalIssues.push('supported_without_source')
+      if(regionalIssues.length)throw Object.assign(new Error('INVALID_REGIONAL_EVIDENCE'),{diagnostics:{regionalIssues}})
+      regional.sourceUrls=[...new Set(references)]
     }
   }
   if(isCriteria(job)){

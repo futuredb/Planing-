@@ -154,6 +154,35 @@ test('market research uses provider citations; invented URLs and missing usage a
 test('internal review with a search is rejected, not silently accepted',async t=>{
  assert.equal((await fixture(t,{answer:response(review,[],1)}).result).type,'error')
 })
+test('regional evidence uses provider page identity without accepting fabricated sources or retries',async t=>{
+ const source={title:'Синтетический источник',url:'https://example.com/region',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест РФ',limitation:'Синтетический тест'}
+ const make=(sourceUrls,status='conditional')=>({...review,searchOutcome:'found',sources:[source],recommendation:{...review.recommendation,assessmentKind:'approach_research',regionalApplicability:{status,summary:'Синтетическое основание.',sourceUrls}}})
+ const annotations=[{type:'url_citation',url:source.url+'#provider-fragment'}]
+ for(const output of [response,submitted]){
+  const answer=make(['https://EXAMPLE.com:443/region#regional-fragment'])
+  const x=fixture(t,{answer:output(answer,annotations,3)}),r=await x.result
+  assert.equal(r.type,'review')
+  assert.equal(r.review.recommendation.score,7)
+  assert.equal(x.requests.length,3) // Budget, routing, analysis; no repair call.
+  // Service validation returns the normalized evidence; adapter keeps the raw
+  // response until that validation and never edits the saved task score.
+  for(const [urls,status,issue] of [
+   [[], 'supported', 'supported_without_source'],
+   [['https://example.com/not-listed'], 'conditional', 'source_not_listed'],
+   [['https://example.com/region?different=1'], 'conditional', 'source_not_listed'],
+  ]){
+   const bad=fixture(t,{answer:output(make(urls,status),annotations,3)}),error=await bad.result
+   assert.equal(error.code,'OPENROUTER_VALIDATION')
+   assert.equal(error.diagnostics.validationCode,'INVALID_REGIONAL_EVIDENCE')
+   assert.deepEqual(error.diagnostics.regionalIssues,[issue])
+   assert.equal(JSON.stringify(error).includes('https://'),false)
+   assert.equal(bad.requests.length,3)
+  }
+  const fabricated=await fixture(t,{answer:output(make([source.url]),[],3)}).result
+  assert.equal(fabricated.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
+ }
+ assert.deepEqual(safeOpenRouterDiagnostics({regionalIssues:['private-url','source_not_listed','source_not_listed','supported_without_source']}),{regionalIssues:['source_not_listed','supported_without_source']})
+})
 test('locked internal route rejects actual search, incompatible outcome and supplied sources',async t=>{
  const source={title:'Тест',url:'https://example.com/public',signal:'Тест',publishedAt:null,origin:'Example',relevance:'analogy',applicability:'Тест',limitation:'Тест'}
  for(const [answer,code]of [

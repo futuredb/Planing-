@@ -8,6 +8,7 @@ import type { Item } from '../types'
 import { Icon } from '../ui/Icon'
 
 const headers={'Content-Type':'application/json'}
+const regionalIssues:Record<string,string>={source_not_listed:'Ссылка в выводе о РФ отсутствует среди источников ответа',supported_without_source:'Применимость к РФ объявлена подтверждённой, но источник не указан'}
 const routingIssues:Record<string,string>={search_performed:'Провайдер сообщил об обращениях к поисковым инструментам для внутренней задачи',outcome_requires_search:'Модель указала результат поиска вместо «Поиск не нужен»',sources_supplied:'Модель приложила внешние источники к внутренней оценке'}
 const assessmentKinds:Record<string,string>={bug:'Исправление ошибки',internal_improvement:'Внутреннее улучшение',market_idea:'Рыночная идея',approach_research:'Исследование нового подхода'}
 const searchOutcomes:Record<string,string>={not_needed:'Поиск не нужен',insufficient:'Недостаточно оснований',found:'Найдены основания'}
@@ -172,6 +173,7 @@ export function TrendwatchReview({item,onOpen,preview=false,refreshKey=''}:{item
         {job.failure.webCalls!==undefined?<><br/>Вызовов серверных инструментов: {job.failure.webCalls}</>:null}
         {job.failure.sourceCount!==undefined?<><br/>Источников в ответе: {job.failure.sourceCount}</>:null}
         {job.failure.routingIssues?.map(issue=>routingIssues[issue]?<span key={issue}><br/>Причина: {routingIssues[issue]}</span>:null)}
+        {job.failure.regionalIssues?.map(issue=>regionalIssues[issue]?<span key={issue}><br/>Причина: {regionalIssues[issue]}</span>:null)}
         {job.failure.outputTokens!==undefined?<><br/>Выходных токенов: {job.failure.outputTokens}</>:null}
         {job.failure.answerFormat?<><br/>Формат итога: {job.failure.answerFormat==='function_call'?'Структурированный результат':'Текст JSON'}</>:null}
         {job.failure.parseIssue?<><br/>Разбор: {parseIssues[job.failure.parseIssue]??'Неизвестная причина'}</>:null}

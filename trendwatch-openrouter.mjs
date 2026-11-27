@@ -37,6 +37,7 @@ const nestedSchemaFields = [
 ]
 const schemaIssueCodes = new Set(['invalid_type','too_big','too_small','invalid_format','invalid_value','unrecognized_keys','invalid_union','custom'])
 const routingIssues = new Set(['search_performed','outcome_requires_search','sources_supplied'])
+const regionalIssues = new Set(['source_not_listed','supported_without_source'])
 // Allowlisted scalars only. Never persist error.message, stack, headers or provider bodies.
 export function safeOpenRouterDiagnostics(value={}) {
   const result={}
@@ -56,6 +57,7 @@ export function safeOpenRouterDiagnostics(value={}) {
     if(Number.isSafeInteger(n)&&n>=0&&n<=1e9&&(key!=='httpStatus'||n>=100&&n<=599))result[key]=n
   }
   if(Array.isArray(value?.routingIssues))result.routingIssues=[...new Set(value.routingIssues.filter(issue=>routingIssues.has(issue)))].slice(0,3)
+  if(Array.isArray(value?.regionalIssues))result.regionalIssues=[...new Set(value.regionalIssues.filter(issue=>regionalIssues.has(issue)))].slice(0,2)
   if(Array.isArray(value?.schemaIssues))result.schemaIssues=value.schemaIssues.slice(0,10).flatMap(issue=>
     schemaIssueCodes.has(issue?.code)?[{field:typeof issue.field==='string'&&issue.field.length<=120&&(schemaFields.has(issue.field)||nestedSchemaFields.some(pattern=>pattern.test(issue.field)))?issue.field:'other',code:issue.code}]:[])
   return result

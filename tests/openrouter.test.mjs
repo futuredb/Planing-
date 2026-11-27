@@ -31,7 +31,7 @@ test('route is fixed before analysis in inbox and backlog; tool access follows i
   // The same priority guidance must reach the provider for both lanes and
   // both research and no-search routes. Responses above are synthetic.
   assert.equal(analysis.input,quickPacket(task,[]))
-  for(const rule of ['Не требуй завершённого A/B-теста','Чужой эффект не является прогнозом нашего эффекта','Не назначай автоматический потолок балла','Общее «обе задачи полезны» не обосновывает равенство'])assert.ok(analysis.input.includes(rule),rule)
+  for(const rule of ['Не требуй завершённого A/B-теста','Чужой эффект не является прогнозом нашего эффекта','Не назначай автоматический потолок балла','Общее «обе задачи полезны» не обосновывает равенство','Блокировка требует основания в task.body или task.comments','summary, verdict, rationale и score должны описывать одно решение','Для чаевых отделяй долю заказов с чаевыми'])assert.ok(analysis.input.includes(rule),rule)
   assert.equal(route.text.format.name,'funban_route');assert.deepEqual(route.tools,[])
   assert.match(route.input,/Подтверждённая экономия/)
   assert.equal(analysis.tools.some(tool=>tool.type==='openrouter:web_search'),research)

@@ -1,7 +1,31 @@
 import test from 'node:test'
 import { z } from 'zod'
 import assert from 'node:assert/strict'
-import { boardContext, quickPacket, quickHash, quickSchema, validateQuickReview } from '../trendwatch-quick.mjs'
+import { boardContext, quickPacket, quickHash, quickSchema, validateQuickReview, taskComments } from '../trendwatch-quick.mjs'
+
+test('blocker provenance stays in dated target comments, never inferred from neighbors or saved scores',()=>{
+ const target={id:'target',title:'Синтетическая задача: композиция экрана',body:'Подготовить варианты экрана',lane:'backlog',priorityScore:10,createdAt:1}
+ const state={items:[target,{id:'peer',title:'Другой экран',body:'Ждёт согласования',lane:'backlog',createdAt:2}],comments:[
+  {itemId:'target',text:'Ждём согласования запуска теста; макеты можно готовить.',createdAt:1000},
+  {itemId:'target',text:'Запуск теста согласован.',createdAt:2000},
+  {itemId:'peer',text:'PRIVATE PEER COMMENT',createdAt:3000},
+ ]}
+ const job={id:'11111111-1111-4111-8111-111111111111',createdAt:3000,priorityPolicy:'concept-mvp-v1',evidencePolicy:'adaptive-signals-v4',snapshot:target,boardContext:boardContext(state,target),commentContext:taskComments(state,target)}
+ job.packetHash=quickHash(job,[])
+ const prompt=quickPacket(job,[])
+ const data=JSON.parse(prompt.split('## Данные задачи и доски\n')[1].split('\n## Сохранённые материалы')[0])
+ assert.deepEqual(data.task.comments.items,state.comments.slice(0,2).map(({text,createdAt})=>({text,createdAt})))
+ assert.equal(data.task.body,target.body)
+ assert.equal(data.board.items[0].body,'Ждёт согласования')
+ assert.equal('priorityScore' in data.task,false)
+ assert.equal(prompt.includes('PRIVATE PEER COMMENT'),false)
+ for(const rule of ['Блокировка требует основания в task.body или task.comments','Блокировка запуска теста не равна блокировке подготовки макетов','Старое ожидание, отменённое более поздним комментарием, не снижает приоритет'])assert.ok(prompt.includes(rule),rule)
+ const empty={...job,snapshot:{...target,body:''},commentContext:taskComments({comments:[]},target)}
+ const emptyData=JSON.parse(quickPacket(empty,[]).split('## Данные задачи и доски\n')[1].split('\n## Сохранённые материалы')[0])
+ assert.equal(emptyData.task.body,'')
+ assert.deepEqual(emptyData.task.comments.items,[])
+ assert.deepEqual(target,{id:'target',title:'Синтетическая задача: композиция экрана',body:'Подготовить варианты экрана',lane:'backlog',priorityScore:10,createdAt:1})
+})
 
 test('bounded board context includes similarity and completed work, excludes private fields',()=>{
  const item={id:'target',title:'AI исследователь',body:'Обзоры для дизайнеров'}

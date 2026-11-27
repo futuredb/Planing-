@@ -8,7 +8,10 @@ import type { Item } from '../types'
 import { Icon } from '../ui/Icon'
 
 const headers={'Content-Type':'application/json'}
-const failurePhases:Record<string,string>={prepare:'Подготовка анализа',budget:'Проверка бюджета ключа',generation:'Запрос к модели',response:'Проверка завершения ответа',parse:'Чтение JSON',schema:'Проверка формата оценки',validation:'Проверка источников и согласованности'}
+const routingIssues:Record<string,string>={search_performed:'Провайдер сообщил об обращениях к поисковым инструментам для внутренней задачи',outcome_requires_search:'Модель указала результат поиска вместо «Поиск не нужен»',sources_supplied:'Модель приложила внешние источники к внутренней оценке'}
+const assessmentKinds:Record<string,string>={bug:'Исправление ошибки',internal_improvement:'Внутреннее улучшение',market_idea:'Рыночная идея',approach_research:'Исследование нового подхода'}
+const searchOutcomes:Record<string,string>={not_needed:'Поиск не нужен',insufficient:'Недостаточно оснований',found:'Найдены основания'}
+const failurePhases:Record<string,string>={prepare:'Подготовка анализа',budget:'Проверка бюджета ключа',routing:'Выбор режима анализа',generation:'Запрос к модели',response:'Проверка завершения ответа',parse:'Чтение JSON',schema:'Проверка формата оценки',validation:'Проверка источников и согласованности'}
 const parseIssues:Record<string,string>={no_final_message:'Нет итогового сообщения модели',empty_text:'Итоговое сообщение пустое',invalid_content:'Неожиданный формат содержимого сообщения',refusal:'Модель отказалась отвечать',unfinished_message:'Итоговое сообщение не завершено',markdown:'JSON обёрнут в Markdown',non_json:'Итоговый текст не читается как JSON',invalid_json:'Ошибка синтаксиса JSON',invalid_function_call:'Некорректная или неоднозначная передача итоговой оценки'}
 const schemaIssues:Record<string,string>={invalid_type:'Неверный тип или отсутствует обязательное поле',too_big:'Превышен допустимый размер или значение',too_small:'Недостаточный размер или значение',invalid_format:'Неверный формат',invalid_value:'Значение не входит в допустимый список',unrecognized_keys:'Лишние поля',invalid_union:'Не соответствует допустимым вариантам',custom:'Не пройдена проверка поля'}
 const verdicts={recommend:'Рекомендую',clarify:'Стоит уточнить',defer:'Пока отложить'}
@@ -162,6 +165,13 @@ export function TrendwatchReview({item,onOpen,preview=false,refreshKey=''}:{item
         {job.failure.responseStatus?<><br/>Статус ответа: {job.failure.responseStatus}</>:null}
         {job.failure.incompleteReason?<><br/>Причина: {job.failure.incompleteReason==='max_output_tokens'?'Достигнут лимит выходных токенов':'Ответ остановлен фильтром содержимого'}</>:null}
         {job.failure.validationCode?<><br/>Проверка: {job.failure.validationCode}</>:null}
+        {job.failure.selectedKind?<><br/>Выбранный режим: {assessmentKinds[job.failure.selectedKind]??'Неизвестен'}</>:null}
+        {job.failure.assessmentKind?<><br/>Тип задачи по ответу модели: {assessmentKinds[job.failure.assessmentKind]??'Неизвестен'}</>:null}
+        {job.failure.searchOutcome?<><br/>Результат поиска по ответу модели: {searchOutcomes[job.failure.searchOutcome]??'Неизвестен'}</>:null}
+        {job.failure.webQueries!==undefined?<><br/>Поисковых запросов по данным провайдера: {job.failure.webQueries}</>:null}
+        {job.failure.webCalls!==undefined?<><br/>Вызовов серверных инструментов: {job.failure.webCalls}</>:null}
+        {job.failure.sourceCount!==undefined?<><br/>Источников в ответе: {job.failure.sourceCount}</>:null}
+        {job.failure.routingIssues?.map(issue=>routingIssues[issue]?<span key={issue}><br/>Причина: {routingIssues[issue]}</span>:null)}
         {job.failure.outputTokens!==undefined?<><br/>Выходных токенов: {job.failure.outputTokens}</>:null}
         {job.failure.answerFormat?<><br/>Формат итога: {job.failure.answerFormat==='function_call'?'Структурированный результат':'Текст JSON'}</>:null}
         {job.failure.parseIssue?<><br/>Разбор: {parseIssues[job.failure.parseIssue]??'Неизвестная причина'}</>:null}

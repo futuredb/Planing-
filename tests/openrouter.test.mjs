@@ -12,6 +12,30 @@ const env={OPENROUTER_API_KEY:'synthetic-secret',FUNBAN_OPENROUTER_MODEL:'test/m
 const job={id:'11111111-1111-4111-8111-111111111111',format:'quick-v1',webSearch:true,createdAt:Date.now(),priorityPolicy:'concept-mvp-v1',evidencePolicy:'adaptive-signals-v4',snapshot:{title:'Автоматизировать сбор материалов',body:'Экономия 2 часа в неделю.',criteria:[]},boardContext:{total:0,items:[]},comparisonContext:{items:[]}}
 job.packetHash=quickHash(job,[])
 const review={jobId:job.id,packetHash:job.packetHash,recommendation:{assessmentKind:'internal_improvement',matrixBucket:'automate',summary:'Экономия 8 часов за четыре недели по данным задачи.',score:7,verdict:'recommend',decisionValue:'Освободить время для концепций.',comparison:{status:'insufficient',itemIds:[],reason:'Нет сравнимых оценок.'},rationale:'Подтверждённая повторная экономия времени.',limitations:'Не известны затраты внедрения.',evidenceStrength:'limited',regionalApplicability:{status:'unknown',summary:'Внутренний инструмент.',sourceUrls:[]},relatedTasks:[]},searchOutcome:'not_needed',sources:[]}
+test('route is fixed before analysis in inbox and backlog; tool access follows it',async t=>{
+ for(const lane of ['inbox','backlog'])for(const kind of ['bug','internal_improvement','market_idea','approach_research']){
+  const task={...job,snapshot:{...job.snapshot,lane},commentContext:{items:[{text:'Подтверждённая экономия 2 часа в неделю.'}]}}
+  task.packetHash=quickHash(task,[])
+  const research=['market_idea','approach_research'].includes(kind)
+  const answer={...review,packetHash:task.packetHash,recommendation:{...review.recommendation,assessmentKind:kind},searchOutcome:research?'insufficient':'not_needed'}
+  const x=fixture(t,{task,fetcher:async(url,options)=>{
+   if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+   const body=JSON.parse(options.body)
+   if(body.text?.format?.name==='funban_route')return Response.json(response({assessmentKind:kind}))
+   return Response.json(research?submitted(answer,[],1):response(answer))
+  }})
+  const result=await x.result
+  assert.equal(result.type,'review')
+  assert.equal(x.requests.length,3)
+  const route=x.requests[1].body,analysis=x.requests[2].body
+  assert.equal(route.text.format.name,'funban_route');assert.deepEqual(route.tools,[])
+  assert.match(route.input,/Подтверждённая экономия/)
+  assert.equal(analysis.tools.some(tool=>tool.type==='openrouter:web_search'),research)
+  const schema=research?analysis.tools.find(tool=>tool.name==='submit_priority').parameters:analysis.text.format.schema
+  assert.equal(schema.properties.recommendation.properties.assessmentKind.const,kind)
+  assert.ok(200+analysis.max_output_tokens<=4096)
+ }
+})
 function response(answer=review,annotations=[],count=0){return {status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify(answer),annotations}]}],usage:{input_tokens:100,output_tokens:200,server_tool_use_details:{web_search_requests:count,tool_calls_executed:count}}}}
 function submitted(answer=review,annotations=[],count=0){
  const data=response(answer,annotations,count)
@@ -19,13 +43,18 @@ function submitted(answer=review,annotations=[],count=0){
  data.output.push({type:'function_call',name:'submit_priority',call_id:'test-call',status:'completed',arguments:JSON.stringify(answer)})
  return data
 }
-function fixture(t,{answer=response(),key={limit:5,limit_remaining:5},config=env,fetcher,task=job}={}){
+function fixture(t,{answer=response(),key={limit:5,limit_remaining:5},config=env,fetcher,task=job,routeKind,routeAnswer}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'openrouter-test-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}))
  fs.writeFileSync(path.join(dir,'job.json'),JSON.stringify(task));fs.writeFileSync(path.join(dir,'materials.json'),JSON.stringify({sources:[]}))
  const requests=[]
  const child=launchOpenRouter(dir,{env:config,fetchImpl:async(url,options)=>{
   requests.push({url,options,body:options.body?JSON.parse(options.body):null})
   if(fetcher)return fetcher(url,options)
+  if(requests.at(-1).body?.text?.format?.name==='funban_route'){
+   let kind=routeKind
+   try{const last=answer.output.at(-1);kind??=JSON.parse(last.arguments??last.content[0].text).recommendation?.assessmentKind}catch{}
+   return Response.json(routeAnswer??response({assessmentKind:kind??'internal_improvement'}))
+  }
   return Response.json(url.endsWith('/key')?{data:key}:answer)
  }})
  const result=new Promise(resolve=>child.on('message',m=>{if(['review','error'].includes(m.type))resolve(m)}))
@@ -35,16 +64,84 @@ test('internal review: bounded request, no observed searches, credentials only i
  const x=fixture(t),result=await x.result
  assert.equal(result.type,'review');assert.equal(result.review.recommendation.score,7)
  assert.deepEqual(result.web,{calls:0,queries:0,urls:[]})
- assert.equal(x.requests.length,2)
- const request=x.requests[1]
+ assert.equal(x.requests.length,3)
+ const request=x.requests[2]
  assert.equal(request.url,'https://openrouter.ai/api/v1/responses')
  assert.equal(request.options.redirect,'error');assert.equal(request.body.store,false)
- assert.equal(request.body.max_output_tokens,4096)
- assert.deepEqual(request.body.stop_server_tools_when,[{type:'step_count_is',step_count:2}])
- assert.equal(request.body.tools[0].parameters.engine,'exa');assert.equal(request.body.tools[0].parameters.max_uses,3)
- assert.equal(request.body.tools.find(tool=>tool.name==='submit_priority').parameters.properties.recommendation.properties.regionalApplicability.properties.sourceUrls.items.format,undefined)
+ assert.equal(request.body.max_output_tokens,3896)
+ assert.equal(request.body.stop_server_tools_when,undefined)
+ assert.deepEqual(request.body.tools,[])
+ assert.equal(request.body.text.format.schema.properties.recommendation.properties.assessmentKind.const,'internal_improvement')
+ assert.equal(request.body.text.format.schema.properties.searchOutcome.const,'not_needed')
+ assert.equal(request.body.text.format.schema.properties.sources.maxItems,0)
  assert.equal(JSON.stringify(request.body).includes(env.OPENROUTER_API_KEY),false)
  assert.equal(JSON.stringify(result).includes(env.OPENROUTER_API_KEY),false)
+ assert.equal(result.usage.output_tokens,400) // Routing + analysis, not just the last response.
+})
+test('invalid routing stops before analysis, without paid retries or guessing',async t=>{
+ for(const routeAnswer of [response({assessmentKind:'unknown'}),response({assessmentKind:'bug',extra:'secret'}),
+  {...response({assessmentKind:'bug'}),status:'incomplete'},response({assessmentKind:'bug'},[],1),
+  {...response({assessmentKind:'bug'}),usage:{output_tokens:99999}},
+  submitted({assessmentKind:'bug'}),
+ ]){
+  const x=fixture(t,{routeAnswer}),r=await x.result
+  assert.equal(r.code,'OPENROUTER_ROUTING');assert.equal(r.diagnostics.phase,'routing')
+  assert.equal(x.requests.length,2)
+  assert.equal(JSON.stringify(r).includes('secret'),false)
+ }
+})
+test('analysis cannot change the selected kind or skip research after a research route',async t=>{
+ for(const [kind,answer] of [
+  ['bug',response(review)],
+  ['approach_research',response(review)],
+  ['market_idea',response({...review,recommendation:{...review.recommendation,assessmentKind:'market_idea'}})],
+ ]){
+  const r=await fixture(t,{routeKind:kind,answer}).result
+  assert.equal(r.code,'OPENROUTER_SCHEMA')
+  assert.equal(r.diagnostics.selectedKind,kind)
+ }
+ const research={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'insufficient'}
+ const r=await fixture(t,{routeKind:'approach_research',answer:response(research)}).result
+ assert.equal(r.code,'OPENROUTER_VALIDATION') // A research label cannot invent an actual search.
+})
+test('unknown routing usage reserves its full allowance; small budgets remain bounded',async t=>{
+ for(const maxTokens of [512,4096,8192]){
+  const x=fixture(t,{config:{...env,FUNBAN_OPENROUTER_MAX_TOKENS:String(maxTokens)},routeAnswer:{...response({assessmentKind:'internal_improvement'}),usage:{}}})
+  assert.equal((await x.result).type,'review')
+  assert.equal(x.requests[1].body.max_output_tokens+x.requests[2].body.max_output_tokens,maxTokens)
+ }
+})
+test('cancelling routing prevents analysis even if the transport returns afterwards',async t=>{
+ let release,started
+ const ready=new Promise(resolve=>{started=resolve})
+ const x=fixture(t,{fetcher:async(url)=>{
+  if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+  started();await new Promise(resolve=>{release=resolve})
+  return Response.json(response({assessmentKind:'internal_improvement'}))
+ }})
+ const messages=[];x.child.on('message',m=>messages.push(m))
+ await ready
+ const closed=new Promise(resolve=>x.child.once('close',resolve));x.child.kill();release();await closed
+ await new Promise(resolve=>setImmediate(resolve))
+ assert.equal(x.requests.length,2);assert.deepEqual(messages,[])
+})
+test('routing and analysis share one timeout, with no analysis request after expiration',async t=>{
+ const x=fixture(t,{config:{...env,FUNBAN_OPENROUTER_TIMEOUT_MS:'1000'},fetcher:async(url,{signal})=>{
+  if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+  return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(new Error('synthetic timeout')),{once:true}))
+ }})
+ const r=await x.result
+ assert.equal(r.code,'OPENROUTER_TIMEOUT');assert.equal(r.diagnostics.phase,'routing')
+ assert.equal(x.requests.length,2)
+})
+test('disabled global search cannot be enabled by a research route',async t=>{
+ const task={...job,webSearch:false};task.packetHash=quickHash(task,[])
+ const {searchOutcome:_,sources:__,...plain}=review
+ const answer={...plain,packetHash:task.packetHash,recommendation:{...plain.recommendation,assessmentKind:'approach_research'}}
+ const x=fixture(t,{task,routeKind:'approach_research',answer:response(answer)})
+ assert.equal((await x.result).type,'review')
+ assert.deepEqual(x.requests[2].body.tools,[])
+ assert.equal(x.requests[2].body.text.format.schema.properties.recommendation.properties.assessmentKind.const,'approach_research')
 })
 test('market research uses provider citations; invented URLs and missing usage are rejected',async t=>{
  const source={title:'Синтетический источник',url:'https://example.com/market',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест рынка',limitation:'Синтетический тест'}
@@ -56,6 +153,21 @@ test('market research uses provider citations; invented URLs and missing usage a
 })
 test('internal review with a search is rejected, not silently accepted',async t=>{
  assert.equal((await fixture(t,{answer:response(review,[],1)}).result).type,'error')
+})
+test('locked internal route rejects actual search, incompatible outcome and supplied sources',async t=>{
+ const source={title:'Тест',url:'https://example.com/public',signal:'Тест',publishedAt:null,origin:'Example',relevance:'analogy',applicability:'Тест',limitation:'Тест'}
+ for(const [answer,code]of [
+  [response(review,[],1),'OPENROUTER_SEARCH_LIMIT'],
+  [response({...review,searchOutcome:'insufficient'}),'OPENROUTER_SCHEMA'],
+  [response({...review,sources:[source]}),'OPENROUTER_SCHEMA'],
+ ]){
+  const x=fixture(t,{answer}),r=await x.result
+  assert.equal(r.code,code)
+  assert.equal(r.diagnostics.selectedKind,'internal_improvement')
+  assert.equal(x.requests.length,3)
+  assert.equal(JSON.stringify(r).includes(source.url),false)
+ }
+ assert.deepEqual(safeOpenRouterDiagnostics({assessmentKind:'secret',searchOutcome:'secret',webCalls:-1,webQueries:NaN,sourceCount:Infinity,routingIssues:['secret']}),{routingIssues:[]})
 })
 test('missing configuration makes no requests; unlimited/exhausted keys make no generation',async t=>{
  const missing=fixture(t,{config:{}});assert.equal((await missing.result).code,'OPENROUTER_CONFIG');assert.equal(missing.requests.length,0)
@@ -158,7 +270,7 @@ test('generation transport failure is distinct from budget failure',async t=>{
   throw new TypeError('private',{cause:Object.assign(new Error('private'),{code:'UND_ERR_HEADERS_TIMEOUT'})})
  }})
  const r=await x.result
- assert.equal(r.code,'OPENROUTER_NETWORK');assert.equal(r.diagnostics.phase,'generation')
+ assert.equal(r.code,'OPENROUTER_NETWORK');assert.equal(r.diagnostics.phase,'routing')
  assert.equal(r.diagnostics.networkCode,'UND_ERR_HEADERS_TIMEOUT');assert.equal(x.requests.length,2)
 })
 
@@ -171,7 +283,7 @@ test('final JSON is read separately from intermediate assistant messages',async 
  answer.output.unshift({type:'message',role:'assistant',content:[{type:'output_text',text:'Сначала проверю контекст.'}]},{type:'reasoning',summary:[]})
  const x=fixture(t,{answer}),r=await x.result
  assert.equal(r.type,'review');assert.equal(r.review.recommendation.score,7)
- assert.equal(x.requests.length,2)
+ assert.equal(x.requests.length,3)
 })
 
 test('unusable final output is diagnosed without falling back to an earlier valid answer',async t=>{
@@ -199,7 +311,7 @@ test('unusable final output is diagnosed without falling back to an earlier vali
   assert.equal(r.diagnostics.outputItems,answer.output.length)
   assert.equal(r.diagnostics.reasoningTokens,4000)
   assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
-  assert.equal(x.requests.length,2)
+  assert.equal(x.requests.length,3)
  }
 })
 
@@ -216,17 +328,18 @@ test('intermediate provider citations survive final-message extraction; invented
 })
 
 test('search request submits its final review through a strict function with the complete source schema',async t=>{
- const x=fixture(t,{answer:submitted()}),r=await x.result
+ const answer={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'insufficient'}
+ const x=fixture(t,{answer:submitted(answer,[],1)}),r=await x.result
  assert.equal(r.type,'review');assert.equal(r.review.recommendation.score,7)
- const body=x.requests[1].body,tool=body.tools.find(tool=>tool.name==='submit_priority')
+ const body=x.requests[2].body,tool=body.tools.find(tool=>tool.name==='submit_priority')
  assert.equal(tool.type,'function');assert.equal(tool.strict,true)
  assert.equal(tool.parameters.additionalProperties,false)
  assert.deepEqual(tool.parameters.properties.sources.items.properties.relevance.enum,['direct','analogy'])
  assert.equal(tool.parameters.properties.sources.items.additionalProperties,false)
  assert.equal(body.text,undefined)
  assert.match(body.instructions,/submit_priority/)
- assert.equal(body.max_output_tokens,4096)
- assert.equal(x.requests.length,2) // Budget + exactly one generation, no repair calls.
+ assert.equal(body.max_output_tokens,3896)
+ assert.equal(x.requests.length,3) // Budget + routing + analysis; no repair calls.
 })
 
 test('submitted market reviews still require provider citations and measured search usage',async t=>{
@@ -234,7 +347,7 @@ test('submitted market reviews still require provider citations and measured sea
  const market={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'found',sources:[source]}
  for(const [cited,count,expected] of [[true,2,'review'],[false,2,'error'],[true,0,'error'],[true,4,'error']]){
   const x=fixture(t,{answer:submitted(market,cited?[{type:'url_citation',url:source.url}]:[],count)})
-  assert.equal((await x.result).type,expected);assert.equal(x.requests.length,2)
+  assert.equal((await x.result).type,expected);assert.equal(x.requests.length,3)
  }
 })
 
@@ -246,17 +359,17 @@ test('invalid or ambiguous submission never falls back to earlier valid JSON or 
   [{...valid,arguments:'{"secret":"synthetic-secret"'}],
   [valid,...response().output],
  ]){
-  const x=fixture(t,{answer:{...response(),output:[...response().output,...calls]}}),r=await x.result
+  const x=fixture(t,{routeKind:'approach_research',answer:{...response(),output:[...response().output,...calls]}}),r=await x.result
   assert.equal(r.type,'error');assert.equal(r.code,'OPENROUTER_JSON')
   assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
   assert.equal(JSON.stringify(r).includes('private-function'),false)
-  assert.equal(x.requests.length,2)
+  assert.equal(x.requests.length,3)
  }
 })
 
 test('all six nested source violations remain visible without exposing values or extra keys',async t=>{
  const source={title:'Test',url:'https://example.com',signal:'Test',publishedAt:null,origin:'Test',relevance:'synthetic-secret',applicability:'Test',limitation:'Test','private-key':'synthetic-secret'}
- const bad={...review,sources:[source,source,source]}
+ const bad={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'found',sources:[source,source,source]}
  for(const answer of [response(bad),submitted(bad)]){
   const x=fixture(t,{answer}),r=await x.result
   assert.equal(r.code,'OPENROUTER_SCHEMA')
@@ -280,15 +393,15 @@ test('nested diagnostic allowlist accepts schema paths only, with bounded size',
  assert.equal(safeOpenRouterDiagnostics({schemaIssues:Array.from({length:100},()=>({field:'sources',code:'invalid_type'}))}).schemaIssues.length,10)
 })
 
-test('disabled web uses the existing strict text schema without any tools or extra requests',async t=>{
+test('disabled web uses the existing strict text schema without any tools after routing',async t=>{
  const task={...job,webSearch:false};task.packetHash=quickHash(task,[])
  const {searchOutcome:_,sources:__,...plain}=review
  const answer={...plain,packetHash:task.packetHash}
  const x=fixture(t,{task,answer:response(answer)}),r=await x.result
  assert.equal(r.type,'review');assert.equal(r.review.recommendation.score,7)
- assert.deepEqual(x.requests[1].body.tools,[])
- assert.equal(x.requests[1].body.text.format.name,'funban_priority')
- assert.equal(x.requests[1].body.text.format.strict,true)
- assert.equal(x.requests.length,2)
+ assert.deepEqual(x.requests[2].body.tools,[])
+ assert.equal(x.requests[2].body.text.format.name,'funban_priority')
+ assert.equal(x.requests[2].body.text.format.strict,true)
+ assert.equal(x.requests.length,3)
  assert.equal((await fixture(t,{task,answer:submitted(answer)}).result).diagnostics.parseIssue,'invalid_function_call')
 })

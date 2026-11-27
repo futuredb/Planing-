@@ -14,6 +14,11 @@ globalThis.fetch = async (url, options = {}) => {
       { type: 'output_text', text: JSON.stringify({ question: body.includes('шаблоны презентаций') ? null : 'Какие именно цифровые дизайны планируем продавать?' }) },
     ] }] })
   }
+  if(payload.text?.format?.name==='funban_route'){
+    if(payload.tools.length)throw new Error('TEST_ROUTE_HAS_TOOLS')
+    if(process.env.FUNBAN_TEST_OPENROUTER_FAILURE==='routing')return Response.json({status:'incomplete',output:[]})
+    return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify({assessmentKind:process.env.FUNBAN_TEST_OPENROUTER_FAILURE==='schema'?'approach_research':'internal_improvement'})}]}],usage:{input_tokens:20,output_tokens:20}})
+  }
   if (process.env.FUNBAN_TEST_OPENROUTER_FAILURE === 'incomplete') return Response.json({status:'incomplete',incomplete_details:{reason:'max_output_tokens'},private:'synthetic-secret',usage:{output_tokens:4096}})
   if (process.env.FUNBAN_TEST_OPENROUTER_FAILURE === 'json') return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'synthetic-secret'}]}],usage:{output_tokens:4740,output_tokens_details:{reasoning_tokens:4000}}})
   const marker = '## Шаблон ответа\n'
@@ -28,11 +33,14 @@ globalThis.fetch = async (url, options = {}) => {
   })
   result.searchOutcome = 'not_needed'; result.sources = []
   const tool=payload.tools.find(tool=>tool.name==='submit_priority')
-  if(!tool?.strict||tool.parameters?.properties.sources.items.properties.relevance.enum.join(',')!=='direct,analogy')throw new Error('TEST_MISSING_STRICT_PRIORITY_TOOL')
+  const schema=tool?.parameters??payload.text?.format?.schema
+  if(!schema||schema.properties.sources.items.properties.relevance.enum.join(',')!=='direct,analogy')throw new Error('TEST_MISSING_STRICT_PRIORITY_SCHEMA')
+  if(!tool&&(payload.tools.length||schema.properties.recommendation.properties.assessmentKind.const!=='internal_improvement'))throw new Error('TEST_INTERNAL_SEARCH_ENABLED')
   if(process.env.FUNBAN_TEST_OPENROUTER_FAILURE==='schema'){
     const source={title:'Test',url:'https://example.com',signal:'Test',publishedAt:null,origin:'Test',relevance:'synthetic-secret',applicability:'Test',limitation:'Test','private-key':'synthetic-secret'}
-    result.sources=[source,source,source]
+    result.recommendation.assessmentKind='approach_research';result.searchOutcome='found';result.sources=[source,source,source]
   }
+  if(!tool)return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify(result)}]}],usage:{input_tokens:100,output_tokens:100}})
   return Response.json({ status: 'completed', output: [{type:'message',role:'assistant',content:[{type:'output_text',text:'Проверю контекст задачи.'}]},
     {type:'function_call',name:'submit_priority',call_id:'synthetic-call',status:'completed',arguments:JSON.stringify(result)},
   ], usage: { input_tokens: 100, output_tokens: 100, server_tool_use_details: { web_search_requests: 0, tool_calls_executed: 0 } } })

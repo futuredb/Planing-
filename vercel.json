@@ -4,7 +4,8 @@
     "deploymentEnabled": {
       "codex/funban-ai-prioritization": false,
       "codex/openrouter-diagnostics": false,
-      "codex/openrouter-structured-priority": false
+      "codex/openrouter-structured-priority": false,
+      "codex/openrouter-routing-before-analysis": false
     }
   }
 }

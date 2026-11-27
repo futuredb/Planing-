@@ -172,6 +172,18 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   assert.equal(JSON.stringify(schemaArchive).includes('synthetic-secret'), false)
   await stop(); await start()
   assert.deepEqual((await (await request(endpoint)).json()).job.failure, failed.failure)
+  await stop(); env.FUNBAN_TEST_OPENROUTER_FAILURE = 'routing'; await start()
+  assert.equal((await request(endpoint, { ...input, requestId: crypto.randomUUID() })).status, 200)
+  for (let attempt = 0; attempt < 100; attempt++) {
+    failed = (await (await request(endpoint)).json()).job
+    if (failed?.status === 'failed') break
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  assert.equal(failed.failure.code, 'OPENROUTER_ROUTING')
+  assert.equal(failed.failure.phase, 'routing')
+  assert.deepEqual((await (await request('/api/state')).json()).items[0], beforeFailure)
+  await stop(); await start()
+  assert.deepEqual((await (await request(endpoint)).json()).job.failure, failed.failure)
   // Runtime switch disables new launches without deleting the saved analysis.
   await stop(); env.FUNBAN_TRENDWATCH_ENABLED = '0'; await start()
   assert.equal((await (await request(endpoint)).json()).available, false)

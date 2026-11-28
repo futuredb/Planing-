@@ -111,6 +111,22 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   assert.equal((await (await request('/api/state')).json()).items.find(i => i.id === 'answered').priorityScore, undefined)
   await stop(); env.FUNBAN_TRENDWATCH_AUTO = '0'; await start()
   assert.deepEqual(await (await request('/api/inbox/clarify', draft)).json(), { question: null })
+  // Unfinished research produces a labelled draft; confirmed scores survive persistence.
+  await stop(); env.FUNBAN_TEST_OPENROUTER_FAILURE = 'unfinished-search'; await start()
+  assert.equal((await request(endpoint, { ...input, requestId: crypto.randomUUID() })).status, 200)
+  let preliminary
+  for (let attempt = 0; attempt < 100; attempt++) {
+    preliminary = (await (await request(endpoint)).json()).job
+    if (['ready', 'failed'].includes(preliminary?.status)) break
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  assert.equal(preliminary.status, 'ready', preliminary.message)
+  assert.equal(preliminary.researchUnavailable, true)
+  assert.equal(preliminary.recommendation.score, 7)
+  assert.equal((await (await request('/api/state')).json()).items[0].priorityScore, 8)
+  await stop(); await start()
+  assert.equal((await (await request(endpoint)).json()).job.researchUnavailable, true)
+  assert.equal((await (await request('/api/state')).json()).items[0].priorityScore, 8)
   // Error details survive HTTP serialization and restart; neither score is overwritten.
   await stop(); env.FUNBAN_TEST_OPENROUTER_FAILURE = 'incomplete'; await start()
   const beforeFailure = (await (await request('/api/state')).json()).items[0]
@@ -142,7 +158,7 @@ test('production OpenRouter: portal, Origin, review, confirmation and restart pr
   assert.equal(failed.failure.code, 'OPENROUTER_JSON')
   assert.equal(failed.failure.parseIssue, 'non_json')
   assert.equal(failed.failure.answerBytes, 16)
-  assert.equal(failed.failure.reasoningTokens, 4000)
+  assert.equal(failed.failure.reasoningTokens, 300)
   assert.equal(failed.failure.assistantMessages, 1)
   assert.equal(JSON.stringify(failed).includes('synthetic-secret'), false)
   assert.deepEqual((await (await request('/api/state')).json()).items[0], beforeFailure)

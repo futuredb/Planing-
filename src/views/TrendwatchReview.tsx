@@ -179,6 +179,7 @@ export function TrendwatchReview({item,onOpen,preview=false,refreshKey=''}:{item
         {job.failure.sourceIssues?.map((issue,index)=>sourceIssues[issue.reason]?<span key={index}><br/>Источник №{issue.index}: {sourceIssues[issue.reason]}</span>:null)}
         {job.failure.routingIssues?.map(issue=>routingIssues[issue]?<span key={issue}><br/>Причина: {routingIssues[issue]}</span>:null)}
         {job.failure.regionalIssues?.map(issue=>regionalIssues[issue]?<span key={issue}><br/>Причина: {regionalIssues[issue]}</span>:null)}
+        {job.failure.repairAttempts?<><br/>Попыток исправления ответа: {job.failure.repairAttempts}</>:null}
         {job.failure.outputTokens!==undefined?<><br/>Выходных токенов: {job.failure.outputTokens}</>:null}
         {job.failure.answerFormat?<><br/>Формат итога: {job.failure.answerFormat==='function_call'?'Структурированный результат':'Текст JSON'}</>:null}
         {job.failure.parseIssue?<><br/>Разбор: {parseIssues[job.failure.parseIssue]??'Неизвестная причина'}</>:null}
@@ -197,6 +198,7 @@ export function TrendwatchReview({item,onOpen,preview=false,refreshKey=''}:{item
     {reviewDue?<p className="research-notice" role="status">Пора пересмотреть: оценке больше 30 дней. Сохранённый балл не изменён.</p>:null}
     {recommendation?<>
       <p className="research-quick-summary">{summary.length>500?summary.slice(0,497)+'…':summary}</p>
+      {job?.researchUnavailable?<p className="research-notice" role="status">Предварительная оценка по задаче и комментариям. Поиск не дал пригодных материалов; рыночные основания не проверены.</p>:null}
       {quick?.decisionValue&&quick.evidenceStrength?<p className="research-muted">Основания: {quick.evidenceStrength==='strong'?'сильные':quick.evidenceStrength==='moderate'?'умеренные':'ограниченные'}. Это надёжность подтверждений, а не балл приоритета.</p>:null}
       {quick?.preliminary?<p className="research-muted research-preliminary">{quick.score===null?'Недостаточно оснований для балла':`Частичная оценка · ${knownCount} из ${job?.snapshot.criteria.length} критериев`}{unknownEffort?' · Напряг не учтён':''}</p>:null}
       {criteriaBased&&quick?.scores?<details className="research-criteria"><summary>Как рассчитано · {quick.score??'—'}/10</summary><dl>{job.snapshot.criteria.map(c=>{

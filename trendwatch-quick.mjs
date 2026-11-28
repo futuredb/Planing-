@@ -271,6 +271,13 @@ export function validateQuickReview(raw,job,sources,web=null) {
     seen.add(related.itemId)
   }
   if(job.webSearch){
+    if(web?.unavailable===true){
+      // Trusted adapter marker; the model cannot request this exception. Sources
+      // and supported regional status remain forbidden, including on replay.
+      const rec=input.recommendation,region=rec.regionalApplicability
+      if(job.mode!=='openrouter'||job.priorityPolicy!=='concept-mvp-v1'||input.searchOutcome!=='insufficient'||input.sources.length||rec.evidenceStrength!=='limited'||region?.status!=='unknown'||region.sourceUrls.length||!Array.isArray(web.urls)||web.urls.length||!Number.isInteger(web.calls)||web.calls<0||web.calls>webLimits.calls||!Number.isInteger(web.queries)||web.queries<0||web.queries>webLimits.queries||web.calls<web.queries)throw new Error('WEB_SEARCH_NOT_VERIFIED')
+      return {recommendation:rec,evidence:[],searchOutcome:'insufficient',researchUnavailable:true,webUsage:{calls:web.calls,queries:web.queries}}
+    }
     if(input.searchOutcome==='not_needed'){
       if(job.evidencePolicy==='regional-signals-v4')throw new Error('WEB_SEARCH_REQUIRED')
       if(input.sources.length||web?.calls!==0||web?.queries!==0)throw new Error('WEB_SEARCH_NOT_VERIFIED')
@@ -296,5 +303,5 @@ export function validateQuickReview(raw,job,sources,web=null) {
   return {recommendation:input.recommendation,evidence:[]}
 }
 export function quickReport(job) {
-  return `# Короткая ИИ-рекомендация\n\n${job.recommendation.summary}\n\nПредложение: ${job.recommendation.score??'—'}/10.${job.recommendation.preliminary?' Предварительно: неизвестные критерии не учтены.':''} Оценку подтверждает человек.\n\nКонтекст: ${job.boardContext.items.length} из ${job.boardContext.total} задач. Архив не означает выполнение. ${job.webSearch&&job.searchOutcome!=='not_needed'?'Лёгкий веб-поиск.':'Без нового поиска.'}\n${(job.evidence??[]).map((s,i)=>`\n[${i+1}] ${s.title} — ${s.url}\n${s.observation}\nДата публикации: ${s.publishedAt??'не указана'}. Проверено: ${s.retrievedAt}\n`).join('')}`
+  return `# Короткая ИИ-рекомендация\n\n${job.recommendation.summary}\n\nПредложение: ${job.recommendation.score??'—'}/10.${job.recommendation.preliminary?' Предварительно: неизвестные критерии не учтены.':''} Оценку подтверждает человек.\n\nКонтекст: ${job.boardContext.items.length} из ${job.boardContext.total} задач. Архив не означает выполнение. ${job.researchUnavailable?'Предварительная оценка: поиск не дал пригодных материалов, рыночные основания не проверены.':job.webSearch&&job.searchOutcome!=='not_needed'?'Лёгкий веб-поиск.':'Без нового поиска.'}\n${(job.evidence??[]).map((s,i)=>`\n[${i+1}] ${s.title} — ${s.url}\n${s.observation}\nДата публикации: ${s.publishedAt??'не указана'}. Проверено: ${s.retrievedAt}\n`).join('')}`
 }

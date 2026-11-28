@@ -3,11 +3,11 @@ import type { Criterion, Item, MatrixBucket } from './types'
 
 export type ResearchContext = { audience: string; goal: string; geography: string; horizon: string }
 export type ResearchJob = {
-  failure?: {code:string;phase?:string;elapsedMs?:number;httpStatus?:number;responseStatus?:string;incompleteReason?:string;networkCode?:string;validationCode?:string;assessmentKind?:string;selectedKind?:string;searchOutcome?:string;webCalls?:number;webQueries?:number;sourceCount?:number;citationUrlCount?:number;searchResultUrlCount?:number;verifiedUrlCount?:number;sourceIssues?:{index:number;reason:string}[];routingIssues?:string[];regionalIssues?:string[];outputTokens?:number;answerFormat?:string;parseIssue?:string;reasoningTokens?:number;outputItems?:number;assistantMessages?:number;textParts?:number;answerBytes?:number;schemaIssueCount?:number;schemaIssues?:{field:string;code:string}[]} | null
+  failure?: {code:string;phase?:string;repairAttempts?:number;elapsedMs?:number;httpStatus?:number;responseStatus?:string;incompleteReason?:string;networkCode?:string;validationCode?:string;assessmentKind?:string;selectedKind?:string;searchOutcome?:string;webCalls?:number;webQueries?:number;sourceCount?:number;citationUrlCount?:number;searchResultUrlCount?:number;verifiedUrlCount?:number;sourceIssues?:{index:number;reason:string}[];routingIssues?:string[];regionalIssues?:string[];outputTokens?:number;answerFormat?:string;parseIssue?:string;reasoningTokens?:number;outputItems?:number;assistantMessages?:number;textParts?:number;answerBytes?:number;schemaIssueCount?:number;schemaIssues?:{field:string;code:string}[]} | null
   priorityPolicy?:'concept-mvp-v1'|'business-v2'|'business-v3'|'criteria-v1'|'criteria-v2'
   comparisonCurrent?:boolean
   evidencePolicy?:'adaptive-signals-v4'|'adaptive-signals-v3'|'adaptive-signals-v2'|'adaptive-signals-v1'|'idea-relevance-v1'|'independent-signals-v1'|'regional-signals-v1'|'regional-signals-v2'|'regional-signals-v3'|'regional-signals-v4'
-  webSearch?:boolean; searchOutcome?:'found'|'insufficient'|'not_needed'; webUsage?:{calls:number;queries:number}
+  researchUnavailable?:boolean; webSearch?:boolean; searchOutcome?:'found'|'insufficient'|'not_needed'; webUsage?:{calls:number;queries:number}
   id: string; automatic?: boolean; status: 'waiting' | 'queued' | 'running' | 'awaiting_review' | 'ready' | 'insufficient' | 'failed' | 'cancelled' | 'interrupted'
   format?: 'quick-v1'; boardContext?: {total:number;items:{id:string;title:string;body:string;lane:Item['lane']}[]}
   mode?: 'runtime' | 'assisted' | 'codex' | 'openrouter'; packetHash?: string; sourceJobId?: string; sourceCount?: number; sourceMessage?: string | null

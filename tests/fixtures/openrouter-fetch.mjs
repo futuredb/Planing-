@@ -17,10 +17,11 @@ globalThis.fetch = async (url, options = {}) => {
   if(payload.text?.format?.name==='funban_route'){
     if(payload.tools.length)throw new Error('TEST_ROUTE_HAS_TOOLS')
     if(process.env.FUNBAN_TEST_OPENROUTER_FAILURE==='routing')return Response.json({status:'incomplete',output:[]})
-    return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify({assessmentKind:process.env.FUNBAN_TEST_OPENROUTER_FAILURE==='schema'?'approach_research':'internal_improvement'})}]}],usage:{input_tokens:20,output_tokens:20}})
+    return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify({assessmentKind:['schema','unfinished-search'].includes(process.env.FUNBAN_TEST_OPENROUTER_FAILURE)?'approach_research':'internal_improvement'})}]}],usage:{input_tokens:20,output_tokens:20}})
   }
-  if (process.env.FUNBAN_TEST_OPENROUTER_FAILURE === 'incomplete') return Response.json({status:'incomplete',incomplete_details:{reason:'max_output_tokens'},private:'synthetic-secret',usage:{output_tokens:4096}})
-  if (process.env.FUNBAN_TEST_OPENROUTER_FAILURE === 'json') return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'synthetic-secret'}]}],usage:{output_tokens:4740,output_tokens_details:{reasoning_tokens:4000}}})
+  if (process.env.FUNBAN_TEST_OPENROUTER_FAILURE === 'incomplete') return Response.json({status:'incomplete',incomplete_details:{reason:'max_output_tokens'},output:[],private:'synthetic-secret',usage:{output_tokens:Math.min(400,payload.max_output_tokens)}})
+  if (process.env.FUNBAN_TEST_OPENROUTER_FAILURE === 'json') return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'synthetic-secret'}]}],usage:{output_tokens:400,output_tokens_details:{reasoning_tokens:300}}})
+  if(process.env.FUNBAN_TEST_OPENROUTER_FAILURE==='unfinished-search'&&payload.tools.length)return Response.json({status:'incomplete',output:[],incomplete_details:{reason:'max_output_tokens'},usage:{output_tokens:100}})
   if(payload.tools.some(tool=>tool.type==='openrouter:web_search'))return Response.json({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:'Синтетические материалы.'}]}],usage:{output_tokens:100,server_tool_use_details:{web_search_requests:1,tool_calls_executed:1}}})
   if(input.startsWith('{'))input=JSON.parse(input).taskPacket
   const marker = '## Шаблон ответа\n'
@@ -34,6 +35,7 @@ globalThis.fetch = async (url, options = {}) => {
     regionalApplicability: { status: 'unknown', summary: 'Внутренняя задача.', sourceUrls: [] }, relatedTasks: [],
   })
   result.searchOutcome = 'not_needed'; result.sources = []
+  if(process.env.FUNBAN_TEST_OPENROUTER_FAILURE==='unfinished-search'){result.recommendation.assessmentKind='approach_research';result.searchOutcome='insufficient'}
   const schema=payload.text?.format?.schema
   if(!schema||schema.properties.sources.items.properties.relevance.enum.join(',')!=='direct,analogy')throw new Error('TEST_MISSING_STRICT_PRIORITY_SCHEMA')
   if(payload.tools.length)throw new Error('TEST_EVALUATION_HAS_TOOLS')

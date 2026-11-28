@@ -6,7 +6,7 @@ import path from 'node:path'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { launchOpenRouter, openRouterConfig, safeOpenRouterDiagnostics } from '../trendwatch-openrouter.mjs'
-import { quickHash, quickPacket } from '../trendwatch-quick.mjs'
+import { quickHash, quickPacket, validateQuickReview } from '../trendwatch-quick.mjs'
 import { fetchOpenRouter } from '../openrouter-fetch.mjs'
 const env={OPENROUTER_API_KEY:'synthetic-secret',FUNBAN_OPENROUTER_MODEL:'test/model'}
 const job={id:'11111111-1111-4111-8111-111111111111',format:'quick-v1',webSearch:true,createdAt:Date.now(),priorityPolicy:'concept-mvp-v1',evidencePolicy:'adaptive-signals-v4',snapshot:{title:'Автоматизировать сбор материалов',body:'Экономия 2 часа в неделю.',criteria:[]},boardContext:{total:0,items:[]},comparisonContext:{items:[]}}
@@ -36,7 +36,7 @@ test('research notes and strict evaluation use separate requests with one output
  assert.equal(search.tools.length,1)
  assert.equal(search.text,undefined)
  assert.ok(search.max_output_tokens<=8192-200-1024)
- assert.equal(200+200+final.max_output_tokens,8192)
+ assert.equal(200+200+final.max_output_tokens+2048,8192)
  assert.equal(r.usage.output_tokens,600)
 })
 test('route is fixed before analysis in inbox and backlog; tool access follows it',async t=>{
@@ -65,7 +65,7 @@ test('route is fixed before analysis in inbox and backlog; tool access follows i
   assert.equal(x.requests[2].body.tools.some(tool=>tool.type==='openrouter:web_search'),research)
   const schema=analysis.text.format.schema
   assert.equal(schema.properties.recommendation.properties.assessmentKind.const,kind)
-  assert.equal((research?400:200)+analysis.max_output_tokens,8192)
+  assert.equal((research?400:200)+analysis.max_output_tokens+2048,8192)
  }
 })
 function response(answer=review,annotations=[],count=0){return {status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify(answer),annotations}]}],usage:{input_tokens:100,output_tokens:200,server_tool_use_details:{web_search_requests:count,tool_calls_executed:count}}}}
@@ -86,8 +86,10 @@ test('research reserves evaluation budget; absent usage spends the allowance con
   const routed=missing?route.max_output_tokens:10,researched=missing?search.max_output_tokens:10
   const reserve=Math.min(4096,Math.ceil((budget-routed)*2/3))
   assert.equal(search.max_output_tokens+reserve,budget-routed)
-  assert.equal(routed+researched+final.max_output_tokens,budget)
-  assert.ok(final.max_output_tokens>=reserve)
+  const remaining=budget-routed-researched
+  const correction=remaining>=3072?Math.min(2048,Math.floor(remaining/3)):0
+  assert.equal(routed+researched+final.max_output_tokens+correction,budget)
+  assert.ok(final.max_output_tokens+correction>=reserve)
   assert.equal(result.usage.output_tokens,missing?undefined:30)
   assert.equal(result.usage.server_tool_use_details.web_search_requests,1)
  }
@@ -122,7 +124,7 @@ test('evaluation cannot introduce new search or use its own citations as researc
   const result=await x.result
   assert.equal(result.code,searches?'OPENROUTER_SEARCH_LIMIT':'OPENROUTER_VALIDATION')
   if(!searches)assert.equal(result.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
-  assert.equal(x.requests.length,4)
+  assert.equal(x.requests.length,searches?4:5)
  }
 })
 test('cancelling research prevents evaluation even when transport returns late',async t=>{
@@ -201,7 +203,7 @@ test('internal review: bounded request, no observed searches, credentials only i
  const request=x.requests[2]
  assert.equal(request.url,'https://openrouter.ai/api/v1/responses')
  assert.equal(request.options.redirect,'error');assert.equal(request.body.store,false)
- assert.equal(request.body.max_output_tokens,7992)
+ assert.equal(request.body.max_output_tokens,7992-2048)
  assert.equal(request.body.stop_server_tools_when,undefined)
  assert.deepEqual(request.body.tools,[])
  assert.equal(request.body.text.format.schema.properties.recommendation.properties.assessmentKind.const,'internal_improvement')
@@ -243,7 +245,7 @@ test('explicit token limits are preserved; routing leaves the remainder for anal
   const x=fixture(t,{config:{...env,FUNBAN_OPENROUTER_MAX_TOKENS:String(maxTokens)}})
   assert.equal((await x.result).type,'review')
   assert.equal(x.requests[1].body.max_output_tokens,1024)
-  assert.equal(x.requests[2].body.max_output_tokens,maxTokens-200)
+  assert.equal(x.requests[2].body.max_output_tokens,maxTokens-200-Math.min(2048,Math.floor((maxTokens-200)/3)))
   assert.equal(x.requests.length,3) // Budget check, routing, analysis; no paid retry.
  }
 })
@@ -251,7 +253,8 @@ test('unknown routing usage reserves its full allowance; small budgets remain bo
  for(const maxTokens of [512,4096,8192]){
   const x=fixture(t,{config:{...env,FUNBAN_OPENROUTER_MAX_TOKENS:String(maxTokens)},routeAnswer:{...response({assessmentKind:'internal_improvement'}),usage:{}}})
   assert.equal((await x.result).type,'review')
-  assert.equal(x.requests[1].body.max_output_tokens+x.requests[2].body.max_output_tokens,maxTokens)
+  const remaining=maxTokens-x.requests[1].body.max_output_tokens
+  assert.equal(x.requests[1].body.max_output_tokens+x.requests[2].body.max_output_tokens+(remaining>=3072?Math.min(2048,Math.floor(remaining/3)):0),maxTokens)
  }
 })
 test('cancelling routing prevents analysis even if the transport returns afterwards',async t=>{
@@ -310,7 +313,7 @@ test('search result URLs establish provenance without assistant citations, for s
   assert.equal(x.requests.length,4) // No extra search, model or repair request.
  }
 })
-test('source provenance rejects unverified envelopes, fabricated pages and duplicate sources without retries',async t=>{
+test('source provenance rejects unverified envelopes, fabricated pages and duplicate sources after one bounded correction',async t=>{
  const source={title:'Тест',url:'https://example.com/research',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест',limitation:'Тест'}
  const answer={...review,searchOutcome:'found',sources:[source],recommendation:{...review.recommendation,assessmentKind:'approach_research'}}
  const search={type:'openrouter:web_search',status:'completed',action:{type:'search',query:'synthetic query',sources:[{type:'url',url:source.url}]}}
@@ -328,7 +331,7 @@ test('source provenance rejects unverified envelopes, fabricated pages and dupli
   const x=fixture(t,{answer:data}),r=await x.result
   assert.equal(r.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
   assert.deepEqual(r.diagnostics.sourceIssues,[{index:1,reason:'not_in_search_results'}])
-  assert.equal(x.requests.length,4)
+  assert.equal(x.requests.length,5)
   assert.equal(JSON.stringify(r).includes('https://'),false)
   assert.equal(JSON.stringify(r).includes('private'),false)
  }
@@ -338,12 +341,44 @@ test('source provenance rejects unverified envelopes, fabricated pages and dupli
  assert.equal(r.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
  assert.deepEqual(r.diagnostics.sourceIssues,[{index:2,reason:'duplicate_source'}])
  assert.equal(r.diagnostics.citationUrlCount,1);assert.equal(r.diagnostics.searchResultUrlCount,1);assert.equal(r.diagnostics.verifiedUrlCount,1)
- assert.equal(x.requests.length,4)
+ assert.equal(x.requests.length,5)
  const clean=safeOpenRouterDiagnostics({sourceIssues:[null,{index:1,reason:'not_in_search_results',url:'private'}, {index:-1,reason:'duplicate_source'}, {index:2,reason:'private'}],searchResultUrlCount:NaN,citationUrlCount:-1,verifiedUrlCount:1})
  assert.deepEqual(clean,{verifiedUrlCount:1,sourceIssues:[{index:1,reason:'not_in_search_results'}]})
  assert.equal(safeOpenRouterDiagnostics({sourceIssues:Array.from({length:20},()=>({index:1,reason:'duplicate_source'}))}).sourceIssues.length,10)
 })
-test('regional evidence uses provider page identity without accepting fabricated sources or retries',async t=>{
+test('regional evidence is selected on sources and decoded without a second URL list',async t=>{
+ const source={title:'Синтетический источник',url:'https://example.com/region',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест РФ',limitation:'Синтетический тест',regionalEvidence:true}
+ const answer={...review,searchOutcome:'found',sources:[source],recommendation:{...review.recommendation,assessmentKind:'approach_research',regionalApplicability:{status:'supported',summary:'Синтетическое основание.'}}}
+ const annotations=[{type:'url_citation',url:source.url}]
+ const x=fixture(t,{answer:response(answer,annotations,2)}),r=await x.result
+ assert.equal(r.type,'review')
+ assert.deepEqual(r.review.recommendation.regionalApplicability.sourceUrls,[source.url])
+ assert.equal(r.review.sources[0].regionalEvidence,undefined)
+ assert.equal(r.review.recommendation.score,7)
+ assert.equal(r.review.recommendation.rationale,answer.recommendation.rationale)
+ const schema=x.requests.at(-1).body.text.format.schema
+ assert.equal(schema.properties.recommendation.properties.regionalApplicability.properties.sourceUrls,undefined)
+ assert.equal(schema.properties.sources.items.properties.regionalEvidence.type,'boolean')
+ assert.ok(schema.properties.sources.items.required.includes('regionalEvidence'))
+ assert.equal(x.requests.length,4)
+ const several={...answer,sources:[{...source,url:'https://example.com/global',regionalEvidence:false},source]}
+ const selected=await fixture(t,{answer:response(several,[...annotations,{type:'url_citation',url:'https://example.com/global'}],2)}).result
+ assert.equal(selected.type,'review')
+ assert.deepEqual(selected.review.recommendation.regionalApplicability.sourceUrls,[source.url])
+ for(const marker of [undefined,'true',false]){
+  const bad={...answer,sources:[{...source,regionalEvidence:marker}]}
+  const error=await fixture(t,{answer:response(bad,annotations,2)}).result
+  assert.equal(error.code,marker===false?'OPENROUTER_VALIDATION':'OPENROUTER_SCHEMA')
+  if(marker===false)assert.deepEqual(error.diagnostics.regionalIssues,['supported_without_source'])
+ }
+ const invented=await fixture(t,{answer:response(answer,[],2)}).result
+ assert.equal(invented.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
+ const mixed={...answer,recommendation:{...answer.recommendation,regionalApplicability:{...answer.recommendation.regionalApplicability,sourceUrls:[source.url]}}}
+ assert.equal((await fixture(t,{answer:response(mixed,annotations,2)}).result).code,'OPENROUTER_SCHEMA')
+ const internal={...review,recommendation:{...review.recommendation,regionalApplicability:{status:'unknown',summary:'Внутренний инструмент.'}}}
+ assert.equal((await fixture(t,{answer:response(internal)}).result).type,'review')
+})
+test('regional evidence uses provider page identity without accepting fabricated sources',async t=>{
  const source={title:'Синтетический источник',url:'https://example.com/region',signal:'Тестовый факт',publishedAt:null,origin:'Example',relevance:'direct',applicability:'Тест РФ',limitation:'Синтетический тест'}
  const make=(sourceUrls,status='conditional')=>({...review,searchOutcome:'found',sources:[source],recommendation:{...review.recommendation,assessmentKind:'approach_research',regionalApplicability:{status,summary:'Синтетическое основание.',sourceUrls}}})
  const annotations=[{type:'url_citation',url:source.url+'#provider-fragment'}]
@@ -365,7 +400,7 @@ test('regional evidence uses provider page identity without accepting fabricated
    assert.equal(error.diagnostics.validationCode,'INVALID_REGIONAL_EVIDENCE')
    assert.deepEqual(error.diagnostics.regionalIssues,[issue])
    assert.equal(JSON.stringify(error).includes('https://'),false)
-   assert.equal(bad.requests.length,4)
+   assert.equal(bad.requests.length,5)
   }
   const fabricated=await fixture(t,{answer:output(make([source.url]),[],3)}).result
   assert.equal(fabricated.diagnostics.validationCode,'UNKNOWN_WEB_SOURCE')
@@ -382,7 +417,7 @@ test('locked internal route rejects actual search, incompatible outcome and supp
   const x=fixture(t,{answer}),r=await x.result
   assert.equal(r.code,code)
   assert.equal(r.diagnostics.selectedKind,'internal_improvement')
-  assert.equal(x.requests.length,3)
+  assert.equal(x.requests.length,code==='OPENROUTER_SEARCH_LIMIT'?3:4)
   assert.equal(JSON.stringify(r).includes(source.url),false)
  }
  assert.deepEqual(safeOpenRouterDiagnostics({assessmentKind:'secret',searchOutcome:'secret',webCalls:-1,webQueries:NaN,sourceCount:Infinity,routingIssues:['secret']}),{routingIssues:[]})
@@ -522,14 +557,14 @@ test('unusable final output is diagnosed without falling back to an earlier vali
   [[message([{type:'output_text',text:'{"secret":"synthetic-secret"'}])], 'invalid_json'],
  ]
  for(const [output,parseIssue]of cases){
-  const answer={...response(),output:[...response().output,...output],usage:{output_tokens:4740,output_tokens_details:{reasoning_tokens:4000}}}
+  const answer={...response(),output:[...response().output,...output],usage:{output_tokens:400,output_tokens_details:{reasoning_tokens:300}}}
   if(!output.length)answer.output=[]
   const x=fixture(t,{answer}),r=await x.result
   assert.equal(r.type,'error',parseIssue);assert.equal(r.diagnostics.parseIssue,parseIssue)
   assert.equal(r.diagnostics.outputItems,answer.output.length)
-  assert.equal(r.diagnostics.reasoningTokens,4000)
+  assert.equal(r.diagnostics.reasoningTokens,300)
   assert.equal(JSON.stringify(r).includes('synthetic-secret'),false)
-  assert.equal(x.requests.length,3)
+  assert.equal(x.requests.length,['invalid_content','refusal','unfinished_message'].includes(parseIssue)?3:4)
  }
 })
 
@@ -554,7 +589,7 @@ test('evaluation after search uses strict JSON with the complete source schema a
  assert.equal(format.schema.additionalProperties,false)
  assert.deepEqual(format.schema.properties.sources.items.properties.relevance.enum,['direct','analogy'])
  assert.equal(format.schema.properties.sources.items.additionalProperties,false)
- assert.equal(body.max_output_tokens,7792)
+ assert.equal(body.max_output_tokens,7792-2048)
  assert.equal(x.requests.length,4) // Budget + routing + search + evaluation; no repair.
 })
 
@@ -563,7 +598,7 @@ test('market reviews after search still require provider citations and measured 
  const market={...review,recommendation:{...review.recommendation,assessmentKind:'approach_research'},searchOutcome:'found',sources:[source]}
  for(const [cited,count,expected] of [[true,2,'review'],[false,2,'error'],[true,0,'error'],[true,4,'error']]){
   const x=fixture(t,{answer:response(market,cited?[{type:'url_citation',url:source.url}]:[],count)})
-  assert.equal((await x.result).type,expected);assert.equal(x.requests.length,count>3?3:4)
+  assert.equal((await x.result).type,expected);assert.equal(x.requests.length,count>3?3:expected==='error'?5:4)
  }
 })
 
@@ -620,4 +655,101 @@ test('disabled web uses the existing strict text schema without any tools after 
  assert.equal(x.requests[2].body.text.format.strict,true)
  assert.equal(x.requests.length,3)
  assert.equal((await fixture(t,{task,answer:submitted(answer)}).result).diagnostics.parseIssue,'invalid_function_call')
+})
+
+test('one correction repairs JSON without another search and accounts for every attempt',async t=>{
+ let attempts=0
+ const x=fixture(t,{fetcher:async(url,{body})=>{
+  if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+  const request=JSON.parse(body)
+  if(request.text?.format?.name==='funban_route')return Response.json(response({assessmentKind:'internal_improvement'}))
+  attempts++
+  const data=response()
+  if(attempts===1)data.output[0].content[0].text='broken JSON synthetic-secret'
+  else {
+   assert.deepEqual(request.tools,[])
+   assert.match(request.instructions,/исправ/)
+   assert.equal(JSON.stringify(request).includes('synthetic-secret'),false)
+  }
+  return Response.json(data)
+ }})
+ const r=await x.result
+ assert.equal(r.type,'review');assert.equal(attempts,2)
+ assert.equal(r.usage.output_tokens,600)
+ assert.ok(x.requests[2].body.max_output_tokens+200<=8192)
+ assert.equal(x.requests[3].body.max_output_tokens+400,8192)
+})
+test('regional mismatch can be corrected once without relaxing source validation',async t=>{
+ let attempts=0
+ const good={...review,searchOutcome:'insufficient',recommendation:{...review.recommendation,assessmentKind:'approach_research'}}
+ const x=fixture(t,{fetcher:async(url,{body})=>{
+  if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+  const request=JSON.parse(body)
+  if(request.text?.format?.name==='funban_route')return Response.json(response({assessmentKind:'approach_research'}))
+  if(request.tools.length)return Response.json(response('Нет подтверждений',[],1))
+  attempts++
+  return Response.json(response(attempts===1?{...good,recommendation:{...good.recommendation,regionalApplicability:{status:'supported',summary:'Ошибка ссылки',sourceUrls:['https://example.com/fake']}}}:good))
+ }})
+ const r=await x.result
+ assert.equal(r.type,'review');assert.equal(attempts,2)
+ assert.equal(r.web.calls,1);assert.equal(r.usage.output_tokens,800)
+ assert.deepEqual(r.review.sources,[])
+})
+test('unfinished search yields an explicitly preliminary assessment without fabricated evidence',async t=>{
+ const task={...job,mode:'openrouter'}
+ task.packetHash=quickHash(task,[])
+ const answer={...review,packetHash:task.packetHash,searchOutcome:'insufficient',recommendation:{...review.recommendation,assessmentKind:'approach_research'}}
+ const x=fixture(t,{task,fetcher:async(url,{body})=>{
+  if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+  const request=JSON.parse(body)
+  if(request.text?.format?.name==='funban_route')return Response.json(response({assessmentKind:'approach_research'}))
+  if(request.tools.length)return Response.json({...response('unfinished',[],1),status:'incomplete',incomplete_details:{reason:'max_output_tokens'}})
+  assert.deepEqual(request.tools,[])
+  assert.match(request.instructions,/предварительн/)
+  assert.equal(request.text.format.schema.properties.sources.maxItems,0)
+  return Response.json(response(answer))
+ }})
+ const r=await x.result
+ assert.equal(r.type,'review');assert.equal(r.web.unavailable,true)
+ assert.deepEqual(r.review.sources,[]);assert.equal(x.requests.length,4)
+})
+
+test('correction is bounded and missing usage cannot replenish the shared budget',async t=>{
+ for(const budget of [2048,8192])for(const missing of [false,true]){
+  let attempts=0,charged=0
+  const x=fixture(t,{config:{...env,FUNBAN_OPENROUTER_MAX_TOKENS:String(budget)},fetcher:async(url,{body})=>{
+   if(url.endsWith('/key'))return Response.json({data:{limit:5,limit_remaining:5}})
+   const request=JSON.parse(body)
+   assert.ok(charged+request.max_output_tokens<=budget)
+   if(request.text?.format?.name==='funban_route'){
+    charged+=200
+    return Response.json(response({assessmentKind:'internal_improvement'}))
+   }
+   attempts++
+   const data=response()
+   data.output[0].content[0].text='malformed'
+   charged+=missing?request.max_output_tokens:200
+   if(missing)delete data.usage.output_tokens
+   return Response.json(data)
+  }})
+  const r=await x.result
+  assert.equal(r.type,'error');assert.equal(r.code,'OPENROUTER_JSON')
+  assert.equal(attempts,budget===8192?2:1)
+  assert.ok(charged<=budget)
+  assert.equal(r.diagnostics.repairAttempts,budget===8192?1:undefined)
+ }
+})
+
+
+test('preliminary marker cannot admit sources, strong evidence or a different adapter',()=>{
+ const task={...job,mode:'openrouter'}
+ task.packetHash=quickHash(task,[])
+ const answer={...review,packetHash:task.packetHash,searchOutcome:'insufficient',recommendation:{...review.recommendation,assessmentKind:'approach_research'}}
+ const web={unavailable:true,calls:1,queries:1,urls:[]}
+ assert.equal(validateQuickReview(answer,task,[],web).researchUnavailable,true)
+ for(const strength of ['moderate','strong'])assert.equal(validateQuickReview({...answer,recommendation:{...answer.recommendation,evidenceStrength:strength}},task,[],web).recommendation.evidenceStrength,'limited')
+ assert.throws(()=>validateQuickReview(answer,{...task,mode:'codex'},[],web),/WEB_SEARCH_NOT_VERIFIED/)
+ assert.throws(()=>validateQuickReview(answer,task,[],{...web,urls:['https://example.com']}),/WEB_SEARCH_NOT_VERIFIED/)
+ const source={title:'Test',url:'https://example.com',signal:'Test',publishedAt:null,origin:'Test',relevance:'direct',applicability:'Test',limitation:'Test'}
+ assert.throws(()=>validateQuickReview({...answer,sources:[source]},task,[],web),/WEB_SEARCH_NOT_VERIFIED/)
 })

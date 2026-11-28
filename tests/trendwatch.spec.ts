@@ -83,6 +83,21 @@ test('короткая карточка: один балл, похожая вы�
  expect(errors).toEqual([])
 })
 
+test('предварительная рекомендация явно отмечает недоступные рыночные основания',async({page},info)=>{
+ await page.route('**/api/items/*/trendwatch',async route=>{
+  const response=await route.fetch(),body=await response.json()
+  if(body.job?.status==='ready')body.job.researchUnavailable=true
+  await route.fulfill({response,json:body})
+ })
+ const panel=await prepare(page)
+ await panel.getByRole('button',{name:'Получить ИИ-рекомендацию'}).click()
+ await expect(panel.getByText('Предварительная оценка по задаче и комментариям. Поиск не дал пригодных материалов; рыночные основания не проверены.',{exact:true})).toBeVisible({timeout:15000})
+ await expect(panel.getByLabel('Оценка приоритета')).toHaveValue('7')
+ await expect(panel.getByRole('button',{name:'Подтвердить',exact:true})).toBeEnabled()
+ await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBe(0)
+ await panel.screenshot({path:`output/playwright/ai-preliminary-${info.project.name}.png`})
+})
+
 for(const title of ['Сбой Codex','Долгий Codex'])test(`короткая карточка: ${title}`,async({page})=>{
  const card=await prepare(page,title)
  const before=await(await page.request.get('/api/state')).json()
